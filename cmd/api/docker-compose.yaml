@@ -1,0 +1,26 @@
+version: '3'
+services:
+  redis:
+    image: library/redis
+    ports:
+      - "6379:6379"
+    sysctls:
+      net.core.somaxconn: 1024
+  redis-insert:
+    image: library/redis
+    entrypoint: /bin/bash
+    command: >
+      -c 'sleep 4;
+      redis-cli -h redis hset cfrpkiapi:fetch.rsync rsync://rpki.apnic.net/repository 12345 ;
+      redis-cli -h redis hset cfrpkiapi:fetch.rsync rsync://rpki.apnic.net/member_repository 12345 ;
+      redis-cli -h redis hset cfrpkiapi:fetch.rsync rsync://rpki.afrinic.net/repository 12345 ;
+      redis-cli -h redis hset cfrpkiapi:fetch.rsync rsync://repository.lacnic.net/rpki/lacnic 12345 ;
+      redis-cli -h redis hset cfrpkiapi:fetch.rsync rsync://rpki.ripe.net/repository 12345 ;
+      redis-cli -h redis hset cfrpkiapi:fetch.rrdp rsync://rpki.apnic.net/repository https://rrdp.apnic.net/notification.xml ;
+      redis-cli -h redis hset cfrpkiapi:fetch.rrdp rsync://rpki.apnic.net/member_repository https://rrdp.apnic.net/notification.xml ;
+      redis-cli -h redis hset cfrpkiapi:fetch.rrdp rsync://rpki.ripe.net/repository https://rrdp.ripe.net/notification.xml ;
+      redis-cli -h redis hset cfrpkiapi:get.files rsync://rpki.apnic.net/repository/apnic-rpki-root-iana-origin.cer MIIEtzCCA5+gAwIBAgIJAM0VS0WczEArMA0GCSqGSIb3DQEBCwUAMCYxJDAiBgNVBAMTG2FwbmljLXJwa2ktcm9vdC1pYW5hLW9yaWdpbjAeFw0xODA5MjcwMDMwMDNaFw0yMzA5MjYwMDMwMDNaMCYxJDAiBgNVBAMTG2FwbmljLXJwa2ktcm9vdC1pYW5hLW9yaWdpbjCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAMfUVki+tWAAGLphIlPM/Kh9hE1SC9NYpcWZcyC/SWEjkTDeQprX/FdiW5SHmpUqoDkxo70oxLIle97Ou82ECOwv4kjm/ern9/7POjam8Q4hUBjfKhu0TXHYFblJQInZfFsbyzSPFYamwAebkoPzKy3kjr10Y2tONVabQMSIXBswzL5QCUcJK2CvzKPD+BNq0kIMKgoGntHm2NQrCdwo34uuwtZ8O6F6iSaL71yeGqRphL/Gs9tziwuioueFJfxOsZNtuwRbbahVd2DLSseNh3AnA1WWctNZ+yY87zvHHGl5hyIEe7rZ6oQUTTauV3OWYW5K1LDbYiZq2c1ZYFOjrtMCAwEAAaOCAeYwggHiMEoGA1UdIAEB/wRAMD4wPAYIKwYBBQUHDgIwMDAuBggrBgEFBQcCARYiaHR0cHM6Ly93d3cuYXBuaWMubmV0L1JQS0kvQ1BTLnBkZjAPBgNVHRMBAf8EBTADAQH/MA4GA1UdDwEB/wQEAwIBBjAdBgNVHQ4EFgQUC5zKkN0Neoo3ZmsZIX/g2EA3t6IwggEGBggrBgEFBQcBCwSB+TCB9jBPBggrBgEFBQcwBYZDcnN5bmM6Ly9ycGtpLmFwbmljLm5ldC9yZXBvc2l0b3J5LzgzOERCMjE0MTY2NTExRTJCM0JDMjg2MTcyRkQxRkYyLzBuBggrBgEFBQcwCoZicnN5bmM6Ly9ycGtpLmFwbmljLm5ldC9yZXBvc2l0b3J5LzgzOERCMjE0MTY2NTExRTJCM0JDMjg2MTcyRkQxRkYyL0M1ektrTjBOZW9vM1ptc1pJWF9nMkVBM3Q2SS5tZnQwMwYIKwYBBQUHMA2GJ2h0dHBzOi8vcnJkcC5hcG5pYy5uZXQvbm90aWZpY2F0aW9uLnhtbDAhBggrBgEFBQcBCAEB/wQSMBCgDjAMMAoCAQECBQD/////MCcGCCsGAQUFBwEHAQH/BBgwFjAJBAIAATADAwEAMAkEAgACMAMDAQAwDQYJKoZIhvcNAQELBQADggEBAJif3hsgjrAhYlVrXew6EerMOdq/6hMV9sbjqhDwr7CwzACH0oEkqyN6K8r5qB3D7sc2Sz8x9/VNrXH5fQlRUglv6477ApFu5MtrGbRzQtE4v4B1vpsixWaEWktalcHyH8WaOtoUJwhTw/PgU6y2fjr/0ly74NEv9IVF7mLe+8Pn7aHKeS+2Zde9tORpDHgIYPx0hIOIr4Jz4KKsIDrmg8rSIlM3PIjmA0A1423YKg7rKVtvpjCmshRaRPaOygLDw6ae5vh3fGOnWOBCsTuAyI8kPQkDudtGmmlIKbALM6Ru8csjJztwWtJts/3N6l32wZmvWKZ1/EqXi7yX7+LPOFs ;
+      redis-cli -h redis hset cfrpkiapi:get.files rsync://rpki.ripe.net/ta/ripe-ncc-ta.cer MIIECjCCAvKgAwIBAgICAMkwDQYJKoZIhvcNAQELBQAwFjEUMBIGA1UEAxMLcmlwZS1uY2MtdGEwIBcNMTcxMTI4MTQzOTU1WhgPMjExNzExMjgxNDM5NTVaMBYxFDASBgNVBAMTC3JpcGUtbmNjLXRhMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0URYSGqUz2myBsOzeW1jQ6NsxNvlLMyhWknvnl8NiBCs/T/S2XuNKQNZ+wBZxIgPPV2pFBFeQAvoH/WK83HwA26V2siwm/MY2nKZ+Olw+wlpzlZ1p3Ipj2eNcKrmit8BwBC8xImzuCGaV0jkRB0GZ0hoH6Ml03umLprRsn6v0xOP0+l6Qc1ZHMFVFb385IQ7FQQTcVIxrdeMsoyJq9eMkE6DoclHhF/NlSllXubASQ9KUWqJ0+Ot3QCXr4LXECMfkpkVR2TZT+v5v658bHVs6ZxRD1b6Uk1uQKAyHUbn/tXvP8lrjAibGzVsXDT2L0x4Edx+QdixPgOji3gBMyL2VwIDAQABo4IBXjCCAVowHQYDVR0OBBYEFOhVKx/W0aT35ATG2OVoDR68Fj/DMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgEGMIGxBggrBgEFBQcBCwSBpDCBoTA8BggrBgEFBQcwCoYwcnN5bmM6Ly9ycGtpLnJpcGUubmV0L3JlcG9zaXRvcnkvcmlwZS1uY2MtdGEubWZ0MDIGCCsGAQUFBzANhiZodHRwczovL3JyZHAucmlwZS5uZXQvbm90aWZpY2F0aW9uLnhtbDAtBggrBgEFBQcwBYYhcnN5bmM6Ly9ycGtpLnJpcGUubmV0L3JlcG9zaXRvcnkvMBgGA1UdIAEB/wQOMAwwCgYIKwYBBQUHDgIwJwYIKwYBBQUHAQcBAf8EGDAWMAkEAgABMAMDAQAwCQQCAAIwAwMBADAhBggrBgEFBQcBCAEB/wQSMBCgDjAMMAoCAQACBQD/////MA0GCSqGSIb3DQEBCwUAA4IBAQAVgJjrZ3wFppC8Yk8D2xgzwSeWVT2vtYq96CQQsjaKb8nbeVz3DwcS3a7RIsevrNVGo43k3AGymg1ki+AWJjvHvJ+tSzCbn5+X6Z7AfYTf2g37xINVDHru0PTQUargSMBAz/MBNpFG8KThtT7WbJrK4+f/lvx0m8QOlYm2a17iXS3AGQJ6RHcq9ADscqGdumxmMMDjwED26bGaYdmru1hNIpwF//jVM/eRjBFoPHKFlx0kLd/yoCQNmx1kW+xANx4uyWxi/DYgSV7Oynq+C60OucW+d8tIhkblh8+YfrmukJdsV+vo2L72yerdbsP9xjqvhZrLKfsLZjYK4SdYYthi ;'
+    # redis-cli -x -h redis set aaa < redis-data/
+    volumes:
+      - ./redis-data:/redis-data

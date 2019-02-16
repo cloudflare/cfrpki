@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+service RPKIAPI {
+    rpc GetResource (ResourceQuery) returns (ResourceData) {}
+    rpc GetRepository (ResourceQuery) returns (stream ResourceData) {}
+    rpc GetFetchRRDP(FetchQuery) returns (stream SIA) {}
+    rpc GetFetch(FetchQuery) returns (stream SIA) {}
+    rpc PublishFile(ResourceData) returns (OperationResponse) {}
+    rpc DeleteFile(ResourceData) returns (OperationResponse) {}
+    rpc DeleteDirectory(ResourceData) returns (OperationResponse) {}
+    rpc PostSIA(SIA) returns (OperationResponse) {}
+    rpc PostRRDP(RRDPInfo) returns (OperationResponse) {}
+    rpc GetRRDPInfo(RRDPInfoQuery) returns (RRDPInfo) {}
+}
+
+message RRDPInfoQuery {
+    string RRDP = 1;
+}
+
+message RRDPInfo {
+    string RRDP = 1;
+    string SessionID = 2;
+    int64 Serial = 3;
+}
+
+message ResourceQuery {
+    string Path = 1;
+    string RRDP = 2;
+}
+
+message ResourceData {
+    string Path = 1;
+    bytes Data = 2;
+}
+
+message FetchQuery {
+    string Path = 1;
+}
+
+message SIA {
+    string RSYNC = 1;
+    string RRDP = 2;
+}
+
+message OperationResponse {
+    
+}
