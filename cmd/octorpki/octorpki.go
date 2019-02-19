@@ -1,9 +1,6 @@
 package main
 
 import (
-	"github.com/cloudflare/cfrpki/sync/lib"
-	"github.com/cloudflare/cfrpki/validator/lib"
-	"github.com/cloudflare/cfrpki/validator/pki"
 	"context"
 	"crypto/ecdsa"
 	"crypto/sha256"
@@ -12,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -22,7 +20,11 @@ import (
 	"runtime"
 	"strings"
 	"time"
-	"errors"
+
+	"github.com/cloudflare/cfrpki/sync/lib"
+	"github.com/cloudflare/cfrpki/validator/lib"
+	"github.com/cloudflare/cfrpki/validator/pki"
+	"github.com/rs/cors"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -51,18 +53,20 @@ var (
 	RsyncBin     = flag.String("rsync.bin", DefaultBin(), "The rsync binary to use")
 
 	// RRDP Options
-	RRDP        = flag.Bool("rrdp", true, "Enable RRDP fetching")
-	RRDPMode    = flag.Int("rrdp.mode", RRDP_MATCH_RSYNC, fmt.Sprintf("RRDP security mode (%v = no check, %v = match rsync domain, %v = match path)", 
+	RRDP     = flag.Bool("rrdp", true, "Enable RRDP fetching")
+	RRDPMode = flag.Int("rrdp.mode", RRDP_MATCH_RSYNC, fmt.Sprintf("RRDP security mode (%v = no check, %v = match rsync domain, %v = match path)",
 		RRDP_NO_MATCH, RRDP_MATCH_RSYNC, RRDP_MATCH_STRICT))
 
 	Mode       = flag.String("mode", "server", "Select output mode (server/oneoff")
 	WaitStable = flag.Bool("output.wait", true, "Wait until stable state to create the file (returns 503 when unstable on HTTP)")
 
 	// Serving Options
-	Addr        = flag.String("http.addr", ":8080", "Listening address")
-	CacheHeader = flag.Bool("http.cache", true, "Enable cache header")
-	MetricsPath = flag.String("http.metrics", "/metrics", "Prometheus metrics endpoint")
-	InfoPath = flag.String("http.info", "/infos", "Information URL")
+	Addr         = flag.String("http.addr", ":8080", "Listening address")
+	CacheHeader  = flag.Bool("http.cache", true, "Enable cache header")
+	MetricsPath  = flag.String("http.metrics", "/metrics", "Prometheus metrics endpoint")
+	InfoPath     = flag.String("http.info", "/infos", "Information URL")
+	CorsOrigins  = flag.String("cors.origins", "*", "Cors origins separated by comma")
+	CorsCreds    = flag.Bool("cors.creds", false, "Cors enable credentials")
 
 	// File option
 	Output   = flag.String("output.roa", "/output.json", "Output ROA file or URL")
@@ -78,28 +82,28 @@ var (
 			Name: "file_count_sia",
 			Help: "Counts of file per SIA.",
 		},
-		[]string{"address", "type",},
+		[]string{"address", "type"},
 	)
 	MetricRsyncErrors = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "rsync_errors",
 			Help: "Rsync error count.",
 		},
-		[]string{"address",},
+		[]string{"address"},
 	)
 	MetricRRDPErrors = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "rrdp_errors",
 			Help: "RRDP error count.",
 		},
-		[]string{"address",},
+		[]string{"address"},
 	)
 	MetricRRDPSerial = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "rrdp_serial",
 			Help: "RRDP serial number.",
 		},
-		[]string{"address",},
+		[]string{"address"},
 	)
 	MetricROAsCount = prometheus.NewGauge(
 		prometheus.GaugeOpts{
@@ -131,14 +135,14 @@ var (
 			Help:       "Time to run an operation.",
 			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 		},
-		[]string{"type",},
+		[]string{"type"},
 	)
 	MetricLastFetch = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "last_fetch",
 			Help: "RRDP/Rsync last timestamp.",
 		},
-		[]string{"address", "type",},
+		[]string{"address", "type"},
 	)
 )
 
@@ -168,18 +172,18 @@ func ReadKey(key []byte, isPem bool) (*ecdsa.PrivateKey, error) {
 }
 
 type Stats struct {
-	URI string `json:"uri"`
-	Count int `json:"file-count"`
-	Iteration int `json:"iteration"`
-	Errors int `json:"errors"`
-	Duration float64 `json:"duration"`
+	URI       string  `json:"uri"`
+	Count     int     `json:"file-count"`
+	Iteration int     `json:"iteration"`
+	Errors    int     `json:"errors"`
+	Duration  float64 `json:"duration"`
 
-	LastFetch int `json:"last-fetch"`
+	LastFetch      int `json:"last-fetch"`
 	LastFetchError int `json:"last-fetch-error,omitempty"`
 
-	RRDPSerial int64 `json:"rrdp-serial,omitempty"`
+	RRDPSerial    int64  `json:"rrdp-serial,omitempty"`
 	RRDPSessionID string `json:"rrdp-sessionid,omitempty"`
-	RRDPLastFile string `json:"rrdp-last-file,omitempty"`
+	RRDPLastFile  string `json:"rrdp-last-file,omitempty"`
 
 	LastError string `json:"last-error,omitempty"`
 }
@@ -191,7 +195,7 @@ type state struct {
 	RsyncBin     string
 	RsyncTimeout time.Duration
 
-	Mode string
+	Mode     string
 	RRDPMode int
 
 	Validity     time.Duration
@@ -217,11 +221,11 @@ type state struct {
 	ROAList *prefixfile.ROAList
 
 	// Various counters and statistics
-	RRDPStats map[string]Stats
-	RsyncStats map[string]Stats
-	CountExplore int
+	RRDPStats          map[string]Stats
+	RsyncStats         map[string]Stats
+	CountExplore       int
 	ValidationDuration time.Duration
-	Iteration int
+	Iteration          int
 	ValidationMessages []string
 }
 
@@ -283,7 +287,7 @@ func (s *state) MainReduce() bool {
 func ExtractRsyncDomain(rsync string) (string, error) {
 	if len(rsync) > len("rsync://") {
 		rsyncDomain := strings.Split(rsync[8:], "/")
-		return "rsync://"+rsyncDomain[0], nil
+		return "rsync://" + rsyncDomain[0], nil
 	} else {
 		return "", errors.New("Wrong size")
 	}
@@ -295,7 +299,7 @@ func (s *state) ReceiveRRDPFileCallback(main string, url string, path string, da
 		log.Errorf("%v is outside directory %v", path, rsync)
 		return nil
 	}
-	if s.RRDPMode == RRDP_MATCH_RSYNC{
+	if s.RRDPMode == RRDP_MATCH_RSYNC {
 		newDom, err := ExtractRsyncDomain(rsync)
 		if err == nil && !strings.Contains(path, newDom) {
 			log.Errorf("%v is outside directory %v", path, newDom)
@@ -325,8 +329,8 @@ func (s *state) ReceiveRRDPFileCallback(main string, url string, path string, da
 	MetricSIACounts.With(
 		prometheus.Labels{
 			"address": main,
-			"type": "rrdp",
-			}).Inc()
+			"type":    "rrdp",
+		}).Inc()
 	tmpStats := s.RRDPStats[main]
 	tmpStats.Count++
 	tmpStats.RRDPLastFile = url
@@ -353,8 +357,8 @@ func (s *state) MainRRDP() {
 			MetricSIACounts.With(
 				prometheus.Labels{
 					"address": vv,
-					"type": "rrdp",
-					}).Set(0)
+					"type":    "rrdp",
+				}).Set(0)
 
 			tmpStats := s.RRDPStats[vv]
 			tmpStats.URI = vv
@@ -383,11 +387,11 @@ func (s *state) MainRRDP() {
 				MetricRRDPErrors.With(
 					prometheus.Labels{
 						"address": vv,
-						}).Inc()
+					}).Inc()
 
 				tmpStats = s.RRDPStats[vv]
 				tmpStats.Errors++
-				tmpStats.LastFetchError = int(time.Now().UTC().UnixNano()/100000000)
+				tmpStats.LastFetchError = int(time.Now().UTC().UnixNano() / 100000000)
 				tmpStats.LastError = fmt.Sprint(err)
 				tmpStats.Duration = t2.Sub(t1).Seconds()
 				s.RRDPStats[vv] = tmpStats
@@ -396,12 +400,12 @@ func (s *state) MainRRDP() {
 			MetricRRDPSerial.With(
 				prometheus.Labels{
 					"address": vv,
-					}).Set(float64(rrdp.Serial))
-			lastFetch := time.Now().UTC().UnixNano()/100000000
+				}).Set(float64(rrdp.Serial))
+			lastFetch := time.Now().UTC().UnixNano() / 100000000
 			MetricLastFetch.With(
 				prometheus.Labels{
 					"address": vv,
-					"type": "rrdp",
+					"type":    "rrdp",
 				}).Set(float64(lastFetch))
 			tmpStats = s.RRDPStats[vv]
 			tmpStats.LastFetch = int(lastFetch)
@@ -454,11 +458,11 @@ func (s *state) MainRsync() {
 			MetricRsyncErrors.With(
 				prometheus.Labels{
 					"address": v,
-					}).Inc()
+				}).Inc()
 
 			tmpStats = s.RsyncStats[v]
 			tmpStats.Errors++
-			tmpStats.LastFetchError = int(time.Now().UTC().UnixNano()/100000000)
+			tmpStats.LastFetchError = int(time.Now().UTC().UnixNano() / 100000000)
 			tmpStats.LastError = fmt.Sprint(err)
 			s.RsyncStats[v] = tmpStats
 		}
@@ -470,13 +474,13 @@ func (s *state) MainRsync() {
 		MetricSIACounts.With(
 			prometheus.Labels{
 				"address": v,
-				"type": "rsync",
-				}).Set(float64(countFiles))
-		lastFetch := time.Now().UTC().UnixNano()/1000000000
+				"type":    "rsync",
+			}).Set(float64(countFiles))
+		lastFetch := time.Now().UTC().UnixNano() / 1000000000
 		MetricLastFetch.With(
 			prometheus.Labels{
 				"address": v,
-				"type": "rsync",
+				"type":    "rsync",
 			}).Set(float64(lastFetch))
 		tmpStats = s.RsyncStats[v]
 		tmpStats.LastFetch = int(lastFetch)
@@ -626,24 +630,23 @@ func (s *state) ServeROAs(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-
 type SIA struct {
 	Rsync string `json:"rsync"`
-	RRDP string `json:"rrdp,omitempty"`
+	RRDP  string `json:"rrdp,omitempty"`
 }
 
 type InfoResult struct {
-	Stable bool `json:"stable"`
-	TALs []string `json:"tals"`
-	SIAs []SIA `json:"sia"`
-	Rsync []Stats `json:"sias-rsync,omitempty"`
-	RRDP []Stats `json:"sias-rrdp,omitempty"`
-	Iteration int `json:"iteration"`
-	LastValidation int `json:"validation-last"`
-	ValidationDuration float64 `json:"validation-duration"`
+	Stable             bool     `json:"stable"`
+	TALs               []string `json:"tals"`
+	SIAs               []SIA    `json:"sia"`
+	Rsync              []Stats  `json:"sias-rsync,omitempty"`
+	RRDP               []Stats  `json:"sias-rrdp,omitempty"`
+	Iteration          int      `json:"iteration"`
+	LastValidation     int      `json:"validation-last"`
+	ValidationDuration float64  `json:"validation-duration"`
 	ValidationMessages []string `json:"validation-messages"`
-	ExploredFiles int `json:"validation-explored"`
-	ROACount int `json:"roas-count"`
+	ExploredFiles      int      `json:"validation-explored"`
+	ROACount           int      `json:"roas-count"`
 }
 
 func (s *state) ServeInfo(w http.ResponseWriter, r *http.Request) {
@@ -656,14 +659,14 @@ func (s *state) ServeInfo(w http.ResponseWriter, r *http.Request) {
 	for k, _ := range tmprsyncfetch {
 		sia = append(sia, SIA{
 			Rsync: k,
-			})
+		})
 	}
 	for k, v := range tmprrdpfetch {
 		for _, vv := range v {
 			sia = append(sia, SIA{
 				Rsync: k,
-				RRDP: vv,
-				})
+				RRDP:  vv,
+			})
 		}
 	}
 	tmprsync := s.RsyncStats
@@ -685,32 +688,38 @@ func (s *state) ServeInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ir := InfoResult{
-		TALs: tals,
-		Stable: s.Stable,
-		SIAs: sia,
-		ROACount: len(tmproa.Data),
-		Rsync: tmprsyncstats,
-		RRDP: tmprrdpstats,
-		LastValidation: int(s.LastComputed.UnixNano()/1000000),
-		ExploredFiles: s.CountExplore,
+		TALs:               tals,
+		Stable:             s.Stable,
+		SIAs:               sia,
+		ROACount:           len(tmproa.Data),
+		Rsync:              tmprsyncstats,
+		RRDP:               tmprrdpstats,
+		LastValidation:     int(s.LastComputed.UnixNano() / 1000000),
+		ExploredFiles:      s.CountExplore,
 		ValidationDuration: s.ValidationDuration.Seconds(),
-		Iteration: s.Iteration,
+		Iteration:          s.Iteration,
 		ValidationMessages: vm,
 	}
 	enc := json.NewEncoder(w)
 	enc.Encode(ir)
 }
 
-func (s *state) Serve(addr string, path string, metricsPath string, infoPath string) {
+func (s *state) Serve(addr string, path string, metricsPath string, infoPath string, corsOrigin string, corsCreds bool) {
 	log.Infof("Serving HTTP on %v%v", addr, path)
 	r := mux.NewRouter()
 	r.HandleFunc(path, s.ServeROAs)
 	r.HandleFunc(infoPath, s.ServeInfo)
 	r.Handle(metricsPath, promhttp.Handler())
-	http.Handle("/", r)
+
+	corsReq := cors.New(cors.Options{
+		AllowedOrigins:   strings.Split(corsOrigin, ","),
+		AllowedMethods:   []string{"GET", "POST", "OPTIONS"},
+		AllowCredentials: corsCreds,
+	}).Handler(r)
+
+	http.Handle("/", corsReq)
 	log.Fatal(http.ListenAndServe(addr, nil))
 }
-
 
 func init() {
 	prometheus.MustRegister(MetricSIACounts)
@@ -759,7 +768,7 @@ func main() {
 
 		EnableCache: *CacheHeader,
 
-		Mode: *Mode,
+		Mode:     *Mode,
 		RRDPMode: *RRDPMode,
 
 		RsyncFetch:      make(map[string]time.Time),
@@ -784,7 +793,7 @@ func main() {
 		},
 
 		RsyncStats: make(map[string]Stats),
-		RRDPStats: make(map[string]Stats),
+		RRDPStats:  make(map[string]Stats),
 	}
 
 	if *Sign {
@@ -804,7 +813,7 @@ func main() {
 	}
 
 	if *Mode == "server" {
-		go s.Serve(*Addr, *Output, *MetricsPath, *InfoPath)
+		go s.Serve(*Addr, *Output, *MetricsPath, *InfoPath, *CorsOrigins, *CorsCreds)
 	} else if *Mode != "oneoff" {
 		log.Fatalf("Mode %v is not specified. Choose either server or oneoff", *Mode)
 	}
@@ -851,7 +860,7 @@ func main() {
 				"type": "validation",
 			}).
 			Observe(float64(s.ValidationDuration.Seconds()))
-		MetricLastValidation.Set(float64(s.LastComputed.UnixNano()/1000000000))
+		MetricLastValidation.Set(float64(s.LastComputed.UnixNano() / 1000000000))
 
 		t1 = time.Now().UTC()
 
@@ -893,7 +902,7 @@ func main() {
 		}
 
 		if s.Stable {
-			MetricLastStableValidation.Set(float64(s.LastComputed.UnixNano()/1000000000))
+			MetricLastStableValidation.Set(float64(s.LastComputed.UnixNano() / 1000000000))
 			MetricState.Set(float64(1))
 
 			log.Infof("Stable state. Revalidating in %v", mainRefresh)
