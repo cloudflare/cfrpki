@@ -2,14 +2,6 @@
 
 
 [[projects]]
-  branch = "master"
-  digest = "1:06b4cb0f1a424c5a530a3fcc94b75986253475a8e5dbf6cd92cb72f20784f307"
-  name = "code.cfops.it/net/cfrpki-validator"
-  packages = ["sync/lib"]
-  pruneopts = "UT"
-  revision = "eb9d1648c36cc54bfe7c3039435aab0464f511f3"
-
-[[projects]]
   digest = "1:87c2e02fb01c27060ccc5ba7c5a407cc91147726f8f40b70cceeedbc52b1f3a8"
   name = "github.com/Sirupsen/logrus"
   packages = ["."]
@@ -149,6 +141,14 @@
   revision = "f8d8b3f739bd91a7c0462cb55235ef63c79c9abc"
 
 [[projects]]
+  digest = "1:b0c25f00bad20d783d259af2af8666969e2fc343fa0dc9efe52936bbd67fb758"
+  name = "github.com/rs/cors"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "9a47f48565a795472d43519dd49aac781f3034fb"
+  version = "v1.6.0"
+
+[[projects]]
   digest = "1:972c2427413d41a1e06ca4897e8528e5a1622894050e2f527b38ddf0f343f759"
   name = "github.com/stretchr/testify"
   packages = ["assert"]
@@ -265,7 +265,6 @@
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
-    "code.cfops.it/net/cfrpki-validator/sync/lib",
     "github.com/Sirupsen/logrus",
     "github.com/cloudflare/gortr/prefixfile",
     "github.com/go-redis/redis",
@@ -273,6 +272,7 @@
     "github.com/gorilla/mux",
     "github.com/prometheus/client_golang/prometheus",
     "github.com/prometheus/client_golang/prometheus/promhttp",
+    "github.com/rs/cors",
     "github.com/stretchr/testify/assert",
     "google.golang.org/grpc",
   ]
