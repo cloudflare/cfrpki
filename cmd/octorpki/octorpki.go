@@ -12,6 +12,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/cloudflare/cfrpki/sync/lib"
+	"github.com/cloudflare/cfrpki/validator/lib"
+	"github.com/cloudflare/cfrpki/validator/pki"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -24,6 +27,7 @@ import (
 	"github.com/cloudflare/cfrpki/sync/lib"
 	"github.com/cloudflare/cfrpki/validator/lib"
 	"github.com/cloudflare/cfrpki/validator/pki"
+
 	"github.com/rs/cors"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -43,6 +47,7 @@ const (
 var (
 	// Validator Options
 	RootTAL     = flag.String("tal.root", "tals/afrinic.tal,tals/apnic.tal,tals/arin.tal,tals/lacnic.tal,tals/ripe.tal", "List of TAL separated by comma")
+	TALNames    = flag.String("tal.name", "Afrinic,APNIC,ARIN,LACNIC,RIPE", "Name of the TALs")
 	UseManifest = flag.Bool("manifest.use", true, "Use manifests file to explore instead of going into the repository")
 	Basepath    = flag.String("cache", "cache/", "Base directory to store certificates")
 	LogLevel    = flag.String("loglevel", "info", "Log level")
@@ -65,6 +70,7 @@ var (
 	CacheHeader = flag.Bool("http.cache", true, "Enable cache header")
 	MetricsPath = flag.String("http.metrics", "/metrics", "Prometheus metrics endpoint")
 	InfoPath    = flag.String("http.info", "/infos", "Information URL")
+
 	CorsOrigins = flag.String("cors.origins", "*", "Cors origins separated by comma")
 	CorsCreds   = flag.Bool("cors.creds", false, "Cors enable credentials")
 
@@ -191,6 +197,7 @@ type Stats struct {
 type state struct {
 	Basepath     string
 	Tals         []*pki.PKIFile
+	TalNames     []string
 	UseManifest  bool
 	RsyncBin     string
 	RsyncTimeout time.Duration
@@ -510,48 +517,51 @@ func (s *state) Warnf(msg string, args ...interface{}) {
 }
 
 func (s *state) MainValidation() {
-	validator := pki.NewValidator()
+	manager := make([]*pki.SimpleManager, len(s.Tals))
+	for i, tal := range s.Tals {
+		validator := pki.NewValidator()
 
-	manager := pki.NewSimpleManager()
-	manager.Validator = validator
-	manager.FileSeeker = s.Fetcher
-	manager.Log = s
+		manager[i] = pki.NewSimpleManager()
+		manager[i].Validator = validator
+		manager[i].FileSeeker = s.Fetcher
+		manager[i].Log = s
 
-	manager.AddInitial(s.Tals)
-	s.CountExplore = manager.Explore(!s.UseManifest, false)
+		manager[i].AddInitial([]*pki.PKIFile{tal})
+		s.CountExplore = manager[i].Explore(!s.UseManifest, false)
 
-	// Insertion of SIAs in db to allow rsync to update the repos
-	var count int
-	for _, obj := range manager.Validator.TALs {
-		tal := obj.Resource.(*librpki.RPKI_TAL)
-		s.RsyncFetch[tal.URI] = time.Now().UTC()
-		count++
-	}
-	for _, obj := range manager.Validator.ValidObjects {
-		if obj.Type == pki.TYPE_CER {
-			cer := obj.Resource.(*librpki.RPKI_Certificate)
-			var RsyncGN string
-			var RRDPGN string
-			var hasRRDP bool
-			for _, sia := range cer.SubjectInformationAccess {
-				gn := string(sia.GeneralName)
-				if sia.AccessMethod.Equal(CertRepository) {
-					RsyncGN = gn
-					s.RsyncFetch[gn] = time.Now().UTC()
-				} else if sia.AccessMethod.Equal(CertRRDP) {
-					hasRRDP = true
-					RRDPGN = gn
-				}
-			}
-
-			if hasRRDP {
-				if _, ok := s.RRDPFetch[RRDPGN]; !ok {
-					s.RRDPFetch[RRDPGN] = make([]string, 0)
-				}
-				s.RRDPFetch[RRDPGN] = append(s.RRDPFetch[RRDPGN], RsyncGN)
-			}
-
+		// Insertion of SIAs in db to allow rsync to update the repos
+		var count int
+		for _, obj := range manager[i].Validator.TALs {
+			tal := obj.Resource.(*librpki.RPKI_TAL)
+			s.RsyncFetch[tal.URI] = time.Now().UTC()
 			count++
+		}
+		for _, obj := range manager[i].Validator.ValidObjects {
+			if obj.Type == pki.TYPE_CER {
+				cer := obj.Resource.(*librpki.RPKI_Certificate)
+				var RsyncGN string
+				var RRDPGN string
+				var hasRRDP bool
+				for _, sia := range cer.SubjectInformationAccess {
+					gn := string(sia.GeneralName)
+					if sia.AccessMethod.Equal(CertRepository) {
+						RsyncGN = gn
+						s.RsyncFetch[gn] = time.Now().UTC()
+					} else if sia.AccessMethod.Equal(CertRRDP) {
+						hasRRDP = true
+						RRDPGN = gn
+					}
+				}
+
+				if hasRRDP {
+					if _, ok := s.RRDPFetch[RRDPGN]; !ok {
+						s.RRDPFetch[RRDPGN] = make([]string, 0)
+					}
+					s.RRDPFetch[RRDPGN] = append(s.RRDPFetch[RRDPGN], RsyncGN)
+				}
+
+				count++
+			}
 		}
 	}
 
@@ -560,18 +570,25 @@ func (s *state) MainValidation() {
 		Data: make([]prefixfile.ROAJson, 0),
 	}
 	var counts int
-	for _, obj := range manager.Validator.ValidROA {
-		roa := obj.Resource.(*librpki.RPKI_ROA)
+	for i, tal := range s.Tals {
+		talname := tal.Path
+		if len(s.TalNames) == len(s.Tals) {
+			talname = s.TalNames[i]
+		}
 
-		for _, entry := range roa.Valids {
-			oroa := prefixfile.ROAJson{
-				ASN:    fmt.Sprintf("AS%v", entry.ASN),
-				Prefix: entry.IPNet.String(),
-				Length: uint8(entry.MaxLength),
-				TA:     "",
+		for _, obj := range manager[i].Validator.ValidROA {
+			roa := obj.Resource.(*librpki.RPKI_ROA)
+
+			for _, entry := range roa.Valids {
+				oroa := prefixfile.ROAJson{
+					ASN:    fmt.Sprintf("AS%v", entry.ASN),
+					Prefix: entry.IPNet.String(),
+					Length: uint8(entry.MaxLength),
+					TA:     talname,
+				}
+				roalist.Data = append(roalist.Data, oroa)
+				counts++
 			}
-			roalist.Data = append(roalist.Data, oroa)
-			counts++
 		}
 	}
 	curTime := time.Now().UTC()
@@ -745,6 +762,7 @@ func main() {
 	mainRefresh, _ := time.ParseDuration(*Refresh)
 
 	rootTALs := strings.Split(*RootTAL, ",")
+	talNames := strings.Split(*TALNames, ",")
 	tals := make([]*pki.PKIFile, 0)
 	for _, tal := range rootTALs {
 		tals = append(tals, &pki.PKIFile{
@@ -758,6 +776,7 @@ func main() {
 	s := &state{
 		Basepath:     *Basepath,
 		Tals:         tals,
+		TalNames:     talNames,
 		UseManifest:  *UseManifest,
 		RsyncTimeout: timeoutDur,
 		RsyncBin:     *RsyncBin,
