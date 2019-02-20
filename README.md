@@ -86,7 +86,7 @@ $ ./octorpki -h
 It is also available as a docker container. Do not forget to add the TAL files in the `tals/` folder.
 ```
 $ mkdir tals && mkdir cache
-$ docker run -ti -v $PWD/tals:/tals -v $PWD/cache:/cache -v $PWD/rrdp.json:/rrdp.json -p 8080:8080 cloudflare/octorpki
+$ docker run -ti -v $PWD/tals:/tals -v $PWD/cache:/cache -p 8080:8080 cloudflare/octorpki
 ```
 
 Using the default settings, you can access the generated ROAs list on
