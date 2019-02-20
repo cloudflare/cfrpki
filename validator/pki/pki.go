@@ -1,12 +1,13 @@
 package pki
 
 import (
-	"github.com/cloudflare/cfrpki/validator/lib"
-	"errors"
-	"fmt"
-	"encoding/asn1"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"github.com/cloudflare/cfrpki/validator/lib"
 	"time"
 )
 
@@ -332,6 +333,12 @@ func (v *Validator) AddCert(cert *librpki.RPKI_Certificate, trust bool) (bool, [
 
 	ski := string(cert.Certificate.SubjectKeyId)
 	aki := string(cert.Certificate.AuthorityKeyId)
+
+	_, exists := v.Objects[ski]
+	if exists {
+		return false, nil, nil, errors.New(fmt.Sprintf("A certificate with Subject Key Id: %v already exists", hex.EncodeToString))
+	}
+
 	_, hasParentValid := v.ValidObjects[aki]
 	parent, hasParent := v.Objects[aki]
 	res := ObjectToResource(cert)
