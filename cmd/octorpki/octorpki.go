@@ -23,7 +23,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
-	
+
 	"github.com/rs/cors"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -55,6 +55,7 @@ var (
 
 	// RRDP Options
 	RRDP     = flag.Bool("rrdp", true, "Enable RRDP fetching")
+	RRDPFile = flag.String("rrdp.file", "rrdp.json", "Save RRDP state")
 	RRDPMode = flag.Int("rrdp.mode", RRDP_MATCH_RSYNC, fmt.Sprintf("RRDP security mode (%v = no check, %v = match rsync domain, %v = match path)",
 		RRDP_NO_MATCH, RRDP_MATCH_RSYNC, RRDP_MATCH_STRICT))
 
@@ -154,10 +155,10 @@ func DefaultBin() string {
 }
 
 type RRDPInfo struct {
-	Rsync     string
-	Path      string
-	SessionID string
-	Serial    int64
+	Rsync     string `json:"rsync"`
+	Path      string `json:"path"`
+	SessionID string `json:"sessionid"`
+	Serial    int64 `json:"serial"`
 }
 
 func ReadKey(key []byte, isPem bool) (*ecdsa.PrivateKey, error) {
@@ -339,6 +340,39 @@ func (s *state) ReceiveRRDPFileCallback(main string, url string, path string, da
 	tmpStats.RRDPLastFile = url
 	s.RRDPStats[main] = tmpStats
 	return nil
+}
+
+func (s *state) LoadRRDP(file string) {
+	f, err := os.Open(file)
+	if err != nil {
+		log.Error(err)
+		return
+	}
+
+	info := make(map[string]RRDPInfo)
+	dec := json.NewDecoder(f)
+	err = dec.Decode(&info)
+	if err != nil {
+		log.Error(err)
+	} else {
+		s.RRDPInfo = info
+	}
+	f.Close()
+}
+
+func (s *state) SaveRRDP(file string) {
+	f, err := os.Create(file)
+	if err != nil {
+		log.Error(err)
+		return
+	}
+
+	dec := json.NewEncoder(f)
+	err = dec.Encode(s.RRDPInfo)
+	if err != nil {
+		log.Error(err)
+	}
+	f.Close()
 }
 
 func (s *state) MainRRDP() {
@@ -839,8 +873,13 @@ func main() {
 		if *RRDP {
 			t1 := time.Now().UTC()
 			// RRDP
-
+			if *RRDPFile != "" {
+				s.LoadRRDP(*RRDPFile)
+			}
 			s.MainRRDP()
+			if *RRDPFile != "" {
+				s.SaveRRDP(*RRDPFile)
+			}
 
 			t2 := time.Now().UTC()
 			MetricOperationTime.With(
