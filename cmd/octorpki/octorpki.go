@@ -57,7 +57,7 @@ var (
 	RRDPMode = flag.Int("rrdp.mode", RRDP_MATCH_RSYNC, fmt.Sprintf("RRDP security mode (%v = no check, %v = match rsync domain, %v = match path)",
 		RRDP_NO_MATCH, RRDP_MATCH_RSYNC, RRDP_MATCH_STRICT))
 
-	Mode       = flag.String("mode", "server", "Select output mode (server/oneoff")
+	Mode       = flag.String("mode", "server", "Select output mode (server/oneoff)")
 	WaitStable = flag.Bool("output.wait", true, "Wait until stable state to create the file (returns 503 when unstable on HTTP)")
 
 	// Serving Options
