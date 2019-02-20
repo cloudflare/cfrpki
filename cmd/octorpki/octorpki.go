@@ -57,16 +57,16 @@ var (
 	RRDPMode = flag.Int("rrdp.mode", RRDP_MATCH_RSYNC, fmt.Sprintf("RRDP security mode (%v = no check, %v = match rsync domain, %v = match path)",
 		RRDP_NO_MATCH, RRDP_MATCH_RSYNC, RRDP_MATCH_STRICT))
 
-	Mode       = flag.String("mode", "server", "Select output mode (server/oneoff")
+	Mode       = flag.String("mode", "server", "Select output mode (server/oneoff)")
 	WaitStable = flag.Bool("output.wait", true, "Wait until stable state to create the file (returns 503 when unstable on HTTP)")
 
 	// Serving Options
-	Addr         = flag.String("http.addr", ":8080", "Listening address")
-	CacheHeader  = flag.Bool("http.cache", true, "Enable cache header")
-	MetricsPath  = flag.String("http.metrics", "/metrics", "Prometheus metrics endpoint")
-	InfoPath     = flag.String("http.info", "/infos", "Information URL")
-	CorsOrigins  = flag.String("cors.origins", "*", "Cors origins separated by comma")
-	CorsCreds    = flag.Bool("cors.creds", false, "Cors enable credentials")
+	Addr        = flag.String("http.addr", ":8080", "Listening address")
+	CacheHeader = flag.Bool("http.cache", true, "Enable cache header")
+	MetricsPath = flag.String("http.metrics", "/metrics", "Prometheus metrics endpoint")
+	InfoPath    = flag.String("http.info", "/infos", "Information URL")
+	CorsOrigins = flag.String("cors.origins", "*", "Cors origins separated by comma")
+	CorsCreds   = flag.Bool("cors.creds", false, "Cors enable credentials")
 
 	// File option
 	Output   = flag.String("output.roa", "/output.json", "Output ROA file or URL")
@@ -391,7 +391,7 @@ func (s *state) MainRRDP() {
 
 				tmpStats = s.RRDPStats[vv]
 				tmpStats.Errors++
-				tmpStats.LastFetchError = int(time.Now().UTC().UnixNano() / 100000000)
+				tmpStats.LastFetchError = int(time.Now().UTC().UnixNano() / 1000000000)
 				tmpStats.LastError = fmt.Sprint(err)
 				tmpStats.Duration = t2.Sub(t1).Seconds()
 				s.RRDPStats[vv] = tmpStats
@@ -401,7 +401,7 @@ func (s *state) MainRRDP() {
 				prometheus.Labels{
 					"address": vv,
 				}).Set(float64(rrdp.Serial))
-			lastFetch := time.Now().UTC().UnixNano() / 100000000
+			lastFetch := time.Now().UTC().UnixNano() / 1000000000
 			MetricLastFetch.With(
 				prometheus.Labels{
 					"address": vv,
@@ -462,7 +462,7 @@ func (s *state) MainRsync() {
 
 			tmpStats = s.RsyncStats[v]
 			tmpStats.Errors++
-			tmpStats.LastFetchError = int(time.Now().UTC().UnixNano() / 100000000)
+			tmpStats.LastFetchError = int(time.Now().UTC().UnixNano() / 1000000000)
 			tmpStats.LastError = fmt.Sprint(err)
 			s.RsyncStats[v] = tmpStats
 		}
