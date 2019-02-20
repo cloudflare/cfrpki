@@ -23,11 +23,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
-
-	"github.com/cloudflare/cfrpki/sync/lib"
-	"github.com/cloudflare/cfrpki/validator/lib"
-	"github.com/cloudflare/cfrpki/validator/pki"
-
+	
 	"github.com/rs/cors"
 
 	"github.com/prometheus/client_golang/prometheus"
