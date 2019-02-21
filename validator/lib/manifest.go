@@ -6,15 +6,20 @@ import (
 	"time"
 )
 
+var (
+	SIAManifest = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 10}
+	ManifestOID = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 1, 26}
+)
+
 type FileList struct {
-	File string
+	File string `asn1:"ia5"`
 	Hash asn1.BitString
 }
 
 type ManifestContent struct {
 	ManifestNumber *big.Int
-	ThisUpdate     time.Time
-	NextUpdate     time.Time
+	ThisUpdate     time.Time `asn1:"generalized"`
+	NextUpdate     time.Time `asn1:"generalized"`
 	FileHashAlg    asn1.ObjectIdentifier
 	FileList       []FileList
 }
@@ -30,6 +35,28 @@ type RPKI_Manifest struct {
 	BadFormat          bool
 	InnerValid         bool
 	InnerValidityError error
+}
+
+func ManifestToEncap(mft *Manifest) ([]byte, error) {
+	return EContentToEncap(mft.EContent.FullBytes)
+}
+
+func EncodeManifestContent(eContent ManifestContent) (*Manifest, error) {
+	eContentEnc, err := asn1.Marshal(eContent)
+	if err != nil {
+		return nil, err
+	}
+
+	eContentEnc, err = asn1.MarshalWithParams(eContentEnc, "tag:0,explicit")
+	if err != nil {
+		return nil, err
+	}
+
+	mft := &Manifest{
+		OID:      ManifestOID,
+		EContent: asn1.RawValue{FullBytes: eContentEnc},
+	}
+	return mft, nil
 }
 
 func DecodeManifest(data []byte) (*RPKI_Manifest, error) {

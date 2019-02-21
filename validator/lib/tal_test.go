@@ -1,6 +1,7 @@
 package librpki
 
 import (
+	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"math/big"
@@ -9,7 +10,17 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestDecode(t *testing.T) {
+func TestEncodeTAL(t *testing.T) {
+	privkey, _ := rsa.GenerateKey(rand.Reader, 2048)
+
+	tal, err := CreateTAL("rsync://example.com/module/root.cer", privkey.Public())
+	assert.Nil(t, err)
+
+	_, err = EncodeTAL(tal)
+	assert.Nil(t, err)
+}
+
+func TestDecodeTAL(t *testing.T) {
 	data := `rsync://rpki.apnic.net/repository/apnic-rpki-root-iana-origin.cer
 
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAx9RWSL61YAAYumEiU8z8
