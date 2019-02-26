@@ -6,7 +6,7 @@ import (
 	"github.com/cloudflare/cfrpki/validator/pki"
 	"github.com/cloudflare/cfrpki/validator/lib"
 	"github.com/cloudflare/cfrpki/sync/lib"
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"strings"
 	"os"
 	"runtime"

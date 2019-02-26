@@ -13,7 +13,7 @@ import (
 	"net"
 	"time"
 	"github.com/go-redis/redis"
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 )
 
