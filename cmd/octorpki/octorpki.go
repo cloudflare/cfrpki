@@ -43,7 +43,7 @@ const (
 var (
 	// Validator Options
 	RootTAL     = flag.String("tal.root", "tals/afrinic.tal,tals/apnic.tal,tals/arin.tal,tals/lacnic.tal,tals/ripe.tal", "List of TAL separated by comma")
-	TALNames    = flag.String("tal.name", "Afrinic,APNIC,ARIN,LACNIC,RIPE", "Name of the TALs")
+	TALNames    = flag.String("tal.name", "AFRINIC,APNIC,ARIN,LACNIC,RIPE", "Name of the TALs")
 	UseManifest = flag.Bool("manifest.use", true, "Use manifests file to explore instead of going into the repository")
 	Basepath    = flag.String("cache", "cache/", "Base directory to store certificates")
 	LogLevel    = flag.String("loglevel", "info", "Log level")
