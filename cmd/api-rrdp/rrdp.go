@@ -13,7 +13,7 @@ import (
 
 	cfrpki "github.com/cloudflare/cfrpki/sync/api"
 	"github.com/cloudflare/cfrpki/sync/lib"
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 )
 

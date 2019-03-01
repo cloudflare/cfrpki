@@ -5,7 +5,7 @@ import (
 	"github.com/cloudflare/cfrpki/validator/pki"
 	"github.com/cloudflare/cfrpki/validator/lib"
     "github.com/cloudflare/cfrpki/sync/api"
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"strings"
 	"runtime"
