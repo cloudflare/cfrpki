@@ -702,9 +702,13 @@ func (sm *SimpleManager) Explore(notMFT bool, addInvalidChilds bool) int {
 				if sm.Log != nil {
 					sm.Log.Errorf("Error exploring file: %v", err)
 				}
-			} else {
+			} else if data != nil {
 				sm.ExploreAdd(file, data, addInvalidChilds)
 				hasMore = sm.HasMore()
+			} else {
+				if sm.Log != nil {
+					sm.Log.Debugf("GetNextFile returned nothing")
+				}
 			}
 		} else {
 			err = sm.GetNextRepository(file, sm.ExploreAdd)

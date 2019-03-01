@@ -434,6 +434,7 @@ func (s *state) MainRRDP() {
 				s.RRDPStats[vv] = tmpStats
 				continue
 			}
+			s.Fetcher.PathAvailable = append(s.Fetcher.PathAvailable, rsync)
 			MetricRRDPSerial.With(
 				prometheus.Labels{
 					"address": vv,
@@ -505,6 +506,7 @@ func (s *state) MainRsync() {
 		}
 		cancelRsync()
 		var countFiles int
+		s.Fetcher.PathAvailable = append(s.Fetcher.PathAvailable, v)
 		if files != nil {
 			countFiles = len(files)
 		}
@@ -832,6 +834,7 @@ func main() {
 				"rsync://": *Basepath,
 			},
 			Log: log.StandardLogger(),
+			PathAvailable: make([]string, 0),
 		},
 		HTTPFetcher: &syncpki.HTTPFetcher{
 			UserAgent: "Cloudflare-RPKI-RRDP/1.0 (+https://rpki.cloudflare.com)",
@@ -870,6 +873,7 @@ func main() {
 	for {
 		s.Iteration++
 		s.FailoverRsync = make([]string, 0)
+		s.Fetcher.PathAvailable = make([]string, 0)
 		if *RRDP {
 			t1 := time.Now().UTC()
 			// RRDP
