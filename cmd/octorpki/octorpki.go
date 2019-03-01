@@ -611,7 +611,7 @@ func (s *state) MainValidation() {
 
 			for _, entry := range roa.Valids {
 				oroa := prefixfile.ROAJson{
-					ASN:    fmt.Sprintf("AS%v", entry.ASN),
+					ASN:    fmt.Sprintf("AS%v", roa.ASN),
 					Prefix: entry.IPNet.String(),
 					Length: uint8(entry.MaxLength),
 					TA:     talname,

@@ -29,12 +29,12 @@ type ROA struct {
 }
 
 type ROA_Entry struct {
-	ASN       int
 	IPNet     *net.IPNet
 	MaxLength int
 }
 
 type RPKI_ROA struct {
+	ASN         int
 	Entries     []*ROA_Entry
 	Certificate *RPKI_Certificate
 	BadFormat   bool
@@ -112,15 +112,15 @@ func (roa *RPKI_ROA) ValidateIPRoaCertificate(cert *RPKI_Certificate) ([]*ROA_En
 	return ValidateIPRoaCertificateList(roa.Entries, cert)
 }
 
-func ConvertROAEntries(roacontent ROAContent) ([]*ROA_Entry, error) {
+func ConvertROAEntries(roacontent ROAContent) ([]*ROA_Entry, int, error) {
 	entries := make([]*ROA_Entry, 0)
-
+	asn := roacontent.ASID
 	//fmt.Printf("ROAContent %v %v AS: %v\n", len(fullbytes), err, roacontent.ASID)
 	for _, addrblock := range roacontent.IpAddrBlocks {
 		for _, addr := range addrblock.Addresses {
 			ip, err := DecodeIP(addrblock.AddressFamily, addr.Address)
 			if err != nil {
-				return entries, err
+				return entries, asn, err
 			}
 
 			maxlength := addr.MaxLength
@@ -129,14 +129,13 @@ func ConvertROAEntries(roacontent ROAContent) ([]*ROA_Entry, error) {
 			}
 			//fmt.Printf(" - %v %v\n", ip, err)
 			re := &ROA_Entry{
-				ASN:       roacontent.ASID,
 				IPNet:     ip,
 				MaxLength: maxlength,
 			}
 			entries = append(entries, re)
 		}
 	}
-	return entries, nil
+	return entries, asn, nil
 }
 
 func DecodeROA(data []byte) (*RPKI_ROA, error) {
@@ -165,7 +164,7 @@ func DecodeROA(data []byte) (*RPKI_ROA, error) {
 		return nil, err
 	}
 
-	entries, err := ConvertROAEntries(roacontent)
+	entries, asn, err := ConvertROAEntries(roacontent)
 	if err != nil {
 		return nil, err
 	}
@@ -174,6 +173,7 @@ func DecodeROA(data []byte) (*RPKI_ROA, error) {
 	rpki_roa := RPKI_ROA{
 		BadFormat: badformat,
 		Entries:   entries,
+		ASN: asn,
 	}
 
 	rpki_roa.SigningTime, _ = c.GetSigningTime()

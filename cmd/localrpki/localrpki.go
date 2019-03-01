@@ -77,7 +77,7 @@ func main() {
 
 		for _, entry := range d.Valids {
 			oroa := OutputROA{
-				ASN:       fmt.Sprintf("AS%v", entry.ASN),
+				ASN:       fmt.Sprintf("AS%v", d.ASN),
 				Prefix:    entry.IPNet.String(),
 				MaxLength: entry.MaxLength,
 				Path:      manager.PathOfResource[roa].ComputePath(),
