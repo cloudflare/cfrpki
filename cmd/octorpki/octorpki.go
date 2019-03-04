@@ -12,9 +12,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/cloudflare/cfrpki/sync/lib"
-	"github.com/cloudflare/cfrpki/validator/lib"
-	"github.com/cloudflare/cfrpki/validator/pki"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -24,14 +21,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudflare/cfrpki/sync/lib"
+	"github.com/cloudflare/cfrpki/validator/lib"
+	"github.com/cloudflare/cfrpki/validator/pki"
+
 	"github.com/rs/cors"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/cloudflare/gortr/prefixfile"
 	"github.com/gorilla/mux"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -72,7 +73,7 @@ var (
 	CorsCreds   = flag.Bool("cors.creds", false, "Cors enable credentials")
 
 	// File option
-	Output   = flag.String("output.roa", "/output.json", "Output ROA file or URL")
+	Output   = flag.String("output.roa", "output.json", "Output ROA file or URL")
 	Sign     = flag.Bool("output.sign", true, "Sign output (GoRTR compatible)")
 	SignKey  = flag.String("output.sign.key", "private.pem", "ECDSA signing key")
 	Validity = flag.String("output.sign.validity", "1h", "Validity")
@@ -158,7 +159,7 @@ type RRDPInfo struct {
 	Rsync     string `json:"rsync"`
 	Path      string `json:"path"`
 	SessionID string `json:"sessionid"`
-	Serial    int64 `json:"serial"`
+	Serial    int64  `json:"serial"`
 }
 
 func ReadKey(key []byte, isPem bool) (*ecdsa.PrivateKey, error) {
@@ -752,9 +753,16 @@ func (s *state) ServeInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *state) Serve(addr string, path string, metricsPath string, infoPath string, corsOrigin string, corsCreds bool) {
-	log.Infof("Serving HTTP on %v%v", addr, path)
+	// Note(Erica): fix https://github.com/cloudflare/cfrpki/issues/8
+	fullPath := path
+	if len(path) > 0 && string(path[0]) != "/" {
+		fullPath = "/" + path
+	}
+	log.Infof("Serving HTTP on %v%v", addr, fullPath)
+
 	r := mux.NewRouter()
-	r.HandleFunc(path, s.ServeROAs)
+
+	r.HandleFunc(fullPath, s.ServeROAs)
 	r.HandleFunc(infoPath, s.ServeInfo)
 	r.Handle(metricsPath, promhttp.Handler())
 
