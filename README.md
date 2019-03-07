@@ -7,7 +7,7 @@ To get started with Cloudflare's Relying Party software, go to the section **[Oc
 
 ## Disclaimer
 
-*This software comes with no warranties.*
+_This software comes with no warranties._
 
 ## Components
 
@@ -60,7 +60,7 @@ The list can be signed using ECDSA signatures to be redistributed more securely
 It provides metrics on validation (times, numbers of files) and logs the requests.
 
 All the files will be stored locally.
-The initialization time will vary and use by default RRDP then Rsync (failed RRDP 
+The initialization time will vary and use by default RRDP then Rsync (failed RRDP
 will failover to Rsync).
 
 It will keep fetching/revalidating until in a stable state (no new endpoints added).
@@ -69,21 +69,26 @@ This feature can be disabled by passing `-output.wait=false`.
 
 The initial startup requires at least 3 iterations which takes around 5 minutes
 (while a refresh takes 2 minutes):
-* Fetching root certificates listed in TAL (via rsync)
-* Fetching repositories listed in the root certificates (RRDP and Rsync)
-* Fetching sub-repositories (National Internet Registries and delegated organizations)
 
-To install 
+- Fetching root certificates listed in TAL (via rsync)
+- Fetching repositories listed in the root certificates (RRDP and Rsync)
+- Fetching sub-repositories (National Internet Registries and delegated organizations)
+
+To install
+
 ```
 $ go get github.com/cloudflare/cfrpki/cmd/octorpki
 ```
+
 To run
+
 ```
 $ cd ~/go/bin/
 $ ./octorpki -h
 ```
 
 It is also available as a docker container. Do not forget to add the TAL files in the `tals/` folder.
+
 ```
 $ mkdir tals && mkdir cache
 $ docker run -ti -v $PWD/tals:/tals -v $PWD/cache:/cache -p 8080:8080 cloudflare/octorpki
@@ -121,6 +126,7 @@ $ openssl ec -in private.pem -pubout -outform pem > public.pem
 ```
 
 If OctoRPKI is running locally using the default port and file (http://localhost:8080/output.json), you can connect GoRTR:
+
 ```
 $ ~/go/bin/gortr -verify.key public.pem -cache http://localhost:8080/output.json
 ```
@@ -142,26 +148,30 @@ Other use-cases include being able to run multiple validators
 on the same data and without relying on filesystem storage (limitation caused by Rsync).
 
 Start docker-compose:
+
 ```
 $ cd cmd/api/
 $ docker-compose up
 ```
 
 Start the API:
+
 ```
 $ cd cmd/api/
 $ go run api.go
 ```
 
 Start the components to synchronize the files:
+
 ```
 $ cd cmd/api-rsync && go run rsync.go
 $ cd cmd/api-rrdp && go run rrdp.go
 ```
 
 Finally, start the Validator
+
 ```
-$ cd cmd/api-validator/validator.go && go run validator.go
+$ cd cmd/api-validator && go run validator.go
 ```
 
 It will work iteratively. Each validation may bring more endpoints to synchronize
