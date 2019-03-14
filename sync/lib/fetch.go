@@ -27,24 +27,20 @@ func ReplacePath(file *pki.PKIFile, replace map[string]string) string {
     return pathRep
 }
 
-func FetchFile(path string, conv bool) ([]byte, error) {
-    f, err := os.Open(path)
-    if err != nil {
-        return nil, err
-    }
-    data, err := ioutil.ReadAll(f)
-    if err != nil {
-        return data, err
-    }
-    f.Close()
+func (s *LocalFetch) GetFile(file *pki.PKIFile) (*pki.SeekFile, error) {
+    return s.GetFileConv(file, file.Type != pki.TYPE_TAL)
+}
 
-    if conv {
-        data, err = librpki.BER2DER(data)
-        if err != nil {
-            return data, err
-        }
+func (s *LocalFetch) GetFileConv(file *pki.PKIFile, convert bool) (*pki.SeekFile, error) {
+    newPath := ReplacePath(file, s.MapDirectory)
+    if s.Log != nil {
+        s.Log.Debugf("Fetching %v->%v", file.Path, newPath)
     }
-    return data, err
+    data, err := FetchFile(newPath, convert)
+    return &pki.SeekFile{
+            File: file.Path,
+            Data: data,
+        }, err
 }
 
 func ParseMapDirectory(mapdir string) map[string]string {
