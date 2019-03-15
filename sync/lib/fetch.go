@@ -60,11 +60,15 @@ func ParseMapDirectory(mapdir string) map[string]string {
 }
 
 func (s *LocalFetch) GetFile(file *pki.PKIFile) (*pki.SeekFile, error) {
+    return s.GetFileConv(file, file.Type != pki.TYPE_TAL)
+}
+
+func (s *LocalFetch) GetFileConv(file *pki.PKIFile, convert bool) (*pki.SeekFile, error) {
     newPath := ReplacePath(file, s.MapDirectory)
     if s.Log != nil {
         s.Log.Debugf("Fetching %v->%v", file.Path, newPath)
     }
-    data, err := FetchFile(newPath, file.Type != pki.TYPE_TAL)
+    data, err := FetchFile(newPath, convert)
     if err != nil {
         var contained bool
         for _, pa := range s.PathAvailable {
