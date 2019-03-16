@@ -24,7 +24,9 @@ Includes protobuf and basic functions.
 
 ### Tools
 
-`cmd/localrpki` performs simple validation against files.
+`cmd/localrpki` performs simple validation against files and generate a JSON prefix list.
+
+`cmd/ctrpki` performs simple validation against files and send them to a Certificate Transparency Log.
 
 `cmd/octorpki` perfoms complete validation, with RRDP and Rsync.
 See the section below for more information.
