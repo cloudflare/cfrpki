@@ -11,6 +11,7 @@ import (
 type LocalFetch struct {
     MapDirectory map[string]string
     Log Logger
+    PathAvailable []string
 }
 
 func ReplaceString(pathRep string, replace map[string]string) string {
@@ -64,6 +65,21 @@ func (s *LocalFetch) GetFile(file *pki.PKIFile) (*pki.SeekFile, error) {
         s.Log.Debugf("Fetching %v->%v", file.Path, newPath)
     }
     data, err := FetchFile(newPath, file.Type != pki.TYPE_TAL)
+    if err != nil {
+        var contained bool
+        for _, pa := range s.PathAvailable {
+            contained = strings.Contains(file.Path, pa)
+            if contained {
+                break
+            }
+        }
+        if !contained {
+            if s.Log != nil {
+                s.Log.Infof("Got %v but repository not yet synchronized", err)
+            }
+            return nil, nil
+        }
+    }
     return &pki.SeekFile{
             File: file.Path,
             Data: data,
