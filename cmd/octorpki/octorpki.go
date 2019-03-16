@@ -865,6 +865,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
+		keyFile.Close()
 		keyDec, err := ReadKey(keyBytes, true)
 		if err != nil {
 			log.Fatal(err)

@@ -3,21 +3,24 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"github.com/cloudflare/cfrpki/validator/pki"
-	"github.com/cloudflare/cfrpki/validator/lib"
+	"fmt"
 	"github.com/cloudflare/cfrpki/sync/lib"
+	"github.com/cloudflare/cfrpki/validator/lib"
+	"github.com/cloudflare/cfrpki/validator/pki"
 	log "github.com/sirupsen/logrus"
-	"strings"
+	"io"
 	"os"
 	"runtime"
-	"fmt"
-	"io"
+	"strconv"
+	"strings"
+	"time"
 )
 
 var (
 	RootTAL     = flag.String("tal.root", "tals/apnic.tal", "List of TAL separated by comma")
 	MapDir      = flag.String("map.dir", "rsync://rpki.ripe.net/repository/=./rpki.ripe.net/repository/", "Map of the paths separated by commas")
 	UseManifest = flag.Bool("manifest.use", true, "Use manifests file to explore instead of going into the repository")
+	ValidTime   = flag.String("valid.time", "now", "Validation time (now/timestamp/RFC3339)")
 	LogLevel    = flag.String("loglevel", "info", "Log level")
 	Output      = flag.String("output", "output.json", "Output file")
 )
@@ -49,7 +52,17 @@ func main() {
 	}
 
 	validator := pki.NewValidator()
-	//validator.Time = validator.Time.Add(time.Duration(24*time.Hour))
+
+	if *ValidTime == "now" {
+		validator.Time = time.Now().UTC()
+	} else if ts, err := strconv.ParseInt(*ValidTime, 10, 64); err == nil {
+		vt := time.Unix(int64(ts), 0)
+		log.Infof("Setting time to %v (timestamp)", vt)
+		validator.Time = vt
+	} else if vt, err := time.Parse(time.RFC3339, *ValidTime); err == nil {
+		log.Infof("Setting time to %v (RFC3339)", vt)
+		validator.Time = vt
+	}
 
 	manager := pki.NewSimpleManager()
 	manager.Validator = validator

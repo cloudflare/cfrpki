@@ -281,7 +281,7 @@ func (v *Validator) AddResource(pkifile *PKIFile, data []byte) (bool, []*PKIFile
 		res.File = pkifile
 		return valid, nil, res, err
 	}
-	return false, nil, nil, nil
+	return false, nil, nil, errors.New("Unknown file type")
 }
 
 func (v *Validator) InvalidateObject(keyid []byte) {
@@ -457,9 +457,10 @@ func (v *Validator) AddROA(pkifile *PKIFile, roa *librpki.RPKI_ROA) (bool, *Reso
 	res.File = pkifile
 	res.Type = TYPE_ROACER
 
-	err = v.ValidateROA(roa)
-	if err != nil {
+	errValidity := v.ValidateROA(roa)
+	if errValidity != nil {
 		valid = false
+		err = errValidity
 	}
 
 	if !roa.InnerValid {
