@@ -233,6 +233,7 @@ type state struct {
 	ValidationDuration time.Duration
 	Iteration          int
 	ValidationMessages []string
+	ROAsTALsCount []ROAsTAL
 }
 
 func (s *state) MainReduce() bool {
@@ -551,17 +552,17 @@ func (s *state) Warnf(msg string, args ...interface{}) {
 }
 
 func FilterDuplicates(roalist []prefixfile.ROAJson) []prefixfile.ROAJson {
-	roalist_nodup := make([]prefixfile.ROAJson, 0)
+	roalistNodup := make([]prefixfile.ROAJson, 0)
 	hmap := make(map[string]bool)
 	for _, roa := range roalist {
 		k := roa.String()
 		_, present := hmap[k]
 		if !present {
 			hmap[k] = true
-			roalist_nodup = append(roalist_nodup, roa)
+			roalistNodup = append(roalistNodup, roa)
 		}
 	}
-	return roalist_nodup
+	return roalistNodup
 }
 
 func (s *state) MainValidation() {
@@ -618,6 +619,7 @@ func (s *state) MainValidation() {
 		Data: make([]prefixfile.ROAJson, 0),
 	}
 	var counts int
+	s.ROAsTALsCount = make([]ROAsTAL, 0)
 	for i, tal := range s.Tals {
 		talname := tal.Path
 		if len(s.TalNames) == len(s.Tals) {
@@ -640,6 +642,7 @@ func (s *state) MainValidation() {
 				counttal++
 			}
 		}
+		s.ROAsTALsCount = append(s.ROAsTALsCount, ROAsTAL{TA: talname, Count: counttal,})
 		MetricROAsCount.With(
 			prometheus.Labels{
 				"ta": talname,
@@ -707,6 +710,11 @@ type SIA struct {
 	RRDP  string `json:"rrdp,omitempty"`
 }
 
+type ROAsTAL struct {
+	TA string `json:"ta,omitempty"`
+	Count int `json:"count,omitempty"`
+}
+
 type InfoResult struct {
 	Stable             bool     `json:"stable"`
 	TALs               []string `json:"tals"`
@@ -718,6 +726,7 @@ type InfoResult struct {
 	ValidationDuration float64  `json:"validation-duration"`
 	ValidationMessages []string `json:"validation-messages"`
 	ExploredFiles      int      `json:"validation-explored"`
+	ROAsTALs           []ROAsTAL      `json:"roas-tal-count"`
 	ROACount           int      `json:"roas-count"`
 }
 
@@ -764,6 +773,7 @@ func (s *state) ServeInfo(w http.ResponseWriter, r *http.Request) {
 		Stable:             s.Stable,
 		SIAs:               sia,
 		ROACount:           len(tmproa.Data),
+		ROAsTALs:           s.ROAsTALsCount,
 		Rsync:              tmprsyncstats,
 		RRDP:               tmprrdpstats,
 		LastValidation:     int(s.LastComputed.UnixNano() / 1000000),
@@ -876,6 +886,7 @@ func main() {
 
 		RsyncStats: make(map[string]Stats),
 		RRDPStats:  make(map[string]Stats),
+		ROAsTALsCount:  make([]ROAsTAL, 0),
 	}
 
 	if *Sign {
