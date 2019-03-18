@@ -863,7 +863,7 @@ func main() {
 			MapDirectory: map[string]string{
 				"rsync://": *Basepath,
 			},
-			Log: log.StandardLogger(),
+			Log:           log.StandardLogger(),
 			PathAvailable: make([]string, 0),
 		},
 		HTTPFetcher: &syncpki.HTTPFetcher{
