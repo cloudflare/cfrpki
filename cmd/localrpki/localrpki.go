@@ -51,51 +51,51 @@ func main() {
 		Log:          log.StandardLogger(),
 	}
 
-	validator := pki.NewValidator()
-
+	var vt time.Time
 	if *ValidTime == "now" {
-		validator.Time = time.Now().UTC()
+		vt = time.Now().UTC()
 	} else if ts, err := strconv.ParseInt(*ValidTime, 10, 64); err == nil {
-		vt := time.Unix(int64(ts), 0)
+		vt = time.Unix(int64(ts), 0)
 		log.Infof("Setting time to %v (timestamp)", vt)
-		validator.Time = vt
-	} else if vt, err := time.Parse(time.RFC3339, *ValidTime); err == nil {
+	} else if vttmp, err := time.Parse(time.RFC3339, *ValidTime); err == nil {
+		vt = vttmp
 		log.Infof("Setting time to %v (RFC3339)", vt)
-		validator.Time = vt
 	}
-
-	manager := pki.NewSimpleManager()
-	manager.Validator = validator
-	manager.FileSeeker = &s
-	manager.Log = log.StandardLogger()
 
 	rootTALs := strings.Split(*RootTAL, ",")
-	tals := make([]*pki.PKIFile, 0)
-	for _, tal := range rootTALs {
-		tals = append(tals, &pki.PKIFile{
-			Path: tal,
-			Type: pki.TYPE_TAL,
-		})
-	}
-	manager.AddInitial(tals)
-
-	manager.Explore(!*UseManifest, false)
-
 	ors := OutputROAs{
 		ROAs: make([]OutputROA, 0),
 	}
+	for _, tal := range rootTALs {
+		validator := pki.NewValidator()
+		validator.Time = vt
 
-	for _, roa := range manager.Validator.ValidROA {
-		d := roa.Resource.(*librpki.RPKI_ROA)
+		manager := pki.NewSimpleManager()
+		manager.Validator = validator
+		manager.FileSeeker = &s
+		manager.Log = log.StandardLogger()
 
-		for _, entry := range d.Valids {
-			oroa := OutputROA{
-				ASN:       fmt.Sprintf("AS%v", d.ASN),
-				Prefix:    entry.IPNet.String(),
-				MaxLength: entry.MaxLength,
-				Path:      manager.PathOfResource[roa].ComputePath(),
+		manager.AddInitial([]*pki.PKIFile{
+			&pki.PKIFile{
+				Path: tal,
+				Type: pki.TYPE_TAL,
+			},
+		})
+
+		manager.Explore(!*UseManifest, false)
+
+		for _, roa := range manager.Validator.ValidROA {
+			d := roa.Resource.(*librpki.RPKI_ROA)
+
+			for _, entry := range d.Valids {
+				oroa := OutputROA{
+					ASN:       fmt.Sprintf("AS%v", d.ASN),
+					Prefix:    entry.IPNet.String(),
+					MaxLength: entry.MaxLength,
+					Path:      manager.PathOfResource[roa].ComputePath(),
+				}
+				ors.ROAs = append(ors.ROAs, oroa)
 			}
-			ors.ROAs = append(ors.ROAs, oroa)
 		}
 	}
 

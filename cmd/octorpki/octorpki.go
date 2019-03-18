@@ -109,11 +109,12 @@ var (
 		},
 		[]string{"address"},
 	)
-	MetricROAsCount = prometheus.NewGauge(
+	MetricROAsCount = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "roas",
 			Help: "Bytes received by the application.",
 		},
+		[]string{"ta"},
 	)
 	MetricState = prometheus.NewGauge(
 		prometheus.GaugeOpts{
@@ -549,6 +550,20 @@ func (s *state) Warnf(msg string, args ...interface{}) {
 	s.ValidationMessages = append(s.ValidationMessages, fmt.Sprintf(msg, args...))
 }
 
+func FilterDuplicates(roalist []prefixfile.ROAJson) []prefixfile.ROAJson {
+	roalist_nodup := make([]prefixfile.ROAJson, 0)
+	hmap := make(map[string]bool)
+	for _, roa := range roalist {
+		k := roa.String()
+		_, present := hmap[k]
+		if !present {
+			hmap[k] = true
+			roalist_nodup = append(roalist_nodup, roa)
+		}
+	}
+	return roalist_nodup
+}
+
 func (s *state) MainValidation() {
 	manager := make([]*pki.SimpleManager, len(s.Tals))
 	for i, tal := range s.Tals {
@@ -609,6 +624,7 @@ func (s *state) MainValidation() {
 			talname = s.TalNames[i]
 		}
 
+		var counttal int
 		for _, obj := range manager[i].Validator.ValidROA {
 			roa := obj.Resource.(*librpki.RPKI_ROA)
 
@@ -621,8 +637,13 @@ func (s *state) MainValidation() {
 				}
 				roalist.Data = append(roalist.Data, oroa)
 				counts++
+				counttal++
 			}
 		}
+		MetricROAsCount.With(
+			prometheus.Labels{
+				"ta": talname,
+			}).Set(float64(counttal))
 	}
 	curTime := time.Now().UTC()
 	s.LastComputed = curTime
@@ -642,6 +663,7 @@ func (s *state) MainValidation() {
 		roalist.Metadata.SignatureDate = signdate
 	}
 
+	roalist.Data = FilterDuplicates(roalist.Data)
 	s.ROAList = roalist
 }
 
@@ -960,12 +982,6 @@ func main() {
 		if *Mode == "oneoff" && s.Stable {
 			log.Info("Stable, terminating")
 			break
-		}
-
-		if s.Stable || !*WaitStable {
-			tmp := s.ROAList
-
-			MetricROAsCount.Set(float64(len(tmp.Data)))
 		}
 
 		if s.Stable {
