@@ -109,11 +109,12 @@ var (
 		},
 		[]string{"address"},
 	)
-	MetricROAsCount = prometheus.NewGauge(
+	MetricROAsCount = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "roas",
 			Help: "Bytes received by the application.",
 		},
+		[]string{"ta"},
 	)
 	MetricState = prometheus.NewGauge(
 		prometheus.GaugeOpts{
@@ -232,6 +233,7 @@ type state struct {
 	ValidationDuration time.Duration
 	Iteration          int
 	ValidationMessages []string
+	ROAsTALsCount []ROAsTAL
 }
 
 func (s *state) MainReduce() bool {
@@ -549,6 +551,20 @@ func (s *state) Warnf(msg string, args ...interface{}) {
 	s.ValidationMessages = append(s.ValidationMessages, fmt.Sprintf(msg, args...))
 }
 
+func FilterDuplicates(roalist []prefixfile.ROAJson) []prefixfile.ROAJson {
+	roalistNodup := make([]prefixfile.ROAJson, 0)
+	hmap := make(map[string]bool)
+	for _, roa := range roalist {
+		k := roa.String()
+		_, present := hmap[k]
+		if !present {
+			hmap[k] = true
+			roalistNodup = append(roalistNodup, roa)
+		}
+	}
+	return roalistNodup
+}
+
 func (s *state) MainValidation() {
 	manager := make([]*pki.SimpleManager, len(s.Tals))
 	for i, tal := range s.Tals {
@@ -603,12 +619,14 @@ func (s *state) MainValidation() {
 		Data: make([]prefixfile.ROAJson, 0),
 	}
 	var counts int
+	s.ROAsTALsCount = make([]ROAsTAL, 0)
 	for i, tal := range s.Tals {
 		talname := tal.Path
 		if len(s.TalNames) == len(s.Tals) {
 			talname = s.TalNames[i]
 		}
 
+		var counttal int
 		for _, obj := range manager[i].Validator.ValidROA {
 			roa := obj.Resource.(*librpki.RPKI_ROA)
 
@@ -621,8 +639,14 @@ func (s *state) MainValidation() {
 				}
 				roalist.Data = append(roalist.Data, oroa)
 				counts++
+				counttal++
 			}
 		}
+		s.ROAsTALsCount = append(s.ROAsTALsCount, ROAsTAL{TA: talname, Count: counttal,})
+		MetricROAsCount.With(
+			prometheus.Labels{
+				"ta": talname,
+			}).Set(float64(counttal))
 	}
 	curTime := time.Now().UTC()
 	s.LastComputed = curTime
@@ -642,6 +666,7 @@ func (s *state) MainValidation() {
 		roalist.Metadata.SignatureDate = signdate
 	}
 
+	roalist.Data = FilterDuplicates(roalist.Data)
 	s.ROAList = roalist
 }
 
@@ -685,6 +710,11 @@ type SIA struct {
 	RRDP  string `json:"rrdp,omitempty"`
 }
 
+type ROAsTAL struct {
+	TA string `json:"ta,omitempty"`
+	Count int `json:"count,omitempty"`
+}
+
 type InfoResult struct {
 	Stable             bool     `json:"stable"`
 	TALs               []string `json:"tals"`
@@ -696,6 +726,7 @@ type InfoResult struct {
 	ValidationDuration float64  `json:"validation-duration"`
 	ValidationMessages []string `json:"validation-messages"`
 	ExploredFiles      int      `json:"validation-explored"`
+	ROAsTALs           []ROAsTAL      `json:"roas-tal-count"`
 	ROACount           int      `json:"roas-count"`
 }
 
@@ -742,6 +773,7 @@ func (s *state) ServeInfo(w http.ResponseWriter, r *http.Request) {
 		Stable:             s.Stable,
 		SIAs:               sia,
 		ROACount:           len(tmproa.Data),
+		ROAsTALs:           s.ROAsTALsCount,
 		Rsync:              tmprsyncstats,
 		RRDP:               tmprrdpstats,
 		LastValidation:     int(s.LastComputed.UnixNano() / 1000000),
@@ -841,7 +873,7 @@ func main() {
 			MapDirectory: map[string]string{
 				"rsync://": *Basepath,
 			},
-			Log: log.StandardLogger(),
+			Log:           log.StandardLogger(),
 			PathAvailable: make([]string, 0),
 		},
 		HTTPFetcher: &syncpki.HTTPFetcher{
@@ -854,6 +886,7 @@ func main() {
 
 		RsyncStats: make(map[string]Stats),
 		RRDPStats:  make(map[string]Stats),
+		ROAsTALsCount:  make([]ROAsTAL, 0),
 	}
 
 	if *Sign {
@@ -960,12 +993,6 @@ func main() {
 		if *Mode == "oneoff" && s.Stable {
 			log.Info("Stable, terminating")
 			break
-		}
-
-		if s.Stable || !*WaitStable {
-			tmp := s.ROAList
-
-			MetricROAsCount.Set(float64(len(tmp.Data)))
 		}
 
 		if s.Stable {
