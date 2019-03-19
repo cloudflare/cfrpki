@@ -4,6 +4,12 @@ import (
 	"context"
 	"encoding/hex"
 	"flag"
+	"net/http"
+	"runtime"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/cloudflare/cfrpki/sync/lib"
 	"github.com/cloudflare/cfrpki/validator/lib"
 	"github.com/cloudflare/cfrpki/validator/pki"
@@ -11,11 +17,6 @@ import (
 	"github.com/google/certificate-transparency-go/client"
 	"github.com/google/certificate-transparency-go/jsonclient"
 	log "github.com/sirupsen/logrus"
-	"net/http"
-	"runtime"
-	"strconv"
-	"strings"
-	"time"
 )
 
 var (
@@ -189,7 +190,7 @@ func main() {
 			}
 		}
 		itera++
-		if itera%(len(ctData)/20) == 0 {
+		if len(ctData) >= 20 && itera%(len(ctData)/20) == 0 {
 			log.Infof("Sent %v/%v (%v%%)", itera, len(ctData), itera*100/len(ctData))
 		}
 	}
