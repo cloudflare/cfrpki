@@ -1,5 +1,3 @@
 cmd/**/cache/*
 cmd/**/*.pem
-cache/*
-tals/
 vendor/
