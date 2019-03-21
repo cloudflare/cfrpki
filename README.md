@@ -74,16 +74,25 @@ The initial startup requires at least 3 iterations which takes around 5 minutes
 - Fetching repositories listed in the root certificates (RRDP and Rsync)
 - Fetching sub-repositories (National Internet Registries and delegated organizations)
 
-To install
+To install, you can either:
 
+- Fetch a binary on the [Releases page](https://github.com/cloudflare/cfrpki/releases)
+- Use `go get`
+- Compile it manually
+
+If you choose to use `go get` (your binary will be in: `~/go/bin/octorpki` or in `$GOPATH/bin/octorpki`)
 ```
 $ go get github.com/cloudflare/cfrpki/cmd/octorpki
+```
+
+If you choose to compile, after you cloned the repository:
+```
+$ cd cmd/octorpki && go build octorpki.go
 ```
 
 To run
 
 ```
-$ cd ~/go/bin/
 $ ./octorpki -h
 ```
 

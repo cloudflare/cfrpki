@@ -12,6 +12,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -233,7 +234,7 @@ type state struct {
 	ValidationDuration time.Duration
 	Iteration          int
 	ValidationMessages []string
-	ROAsTALsCount []ROAsTAL
+	ROAsTALsCount      []ROAsTAL
 }
 
 func (s *state) MainReduce() bool {
@@ -355,9 +356,9 @@ func (s *state) LoadRRDP(file string) {
 	info := make(map[string]RRDPInfo)
 	dec := json.NewDecoder(f)
 	err = dec.Decode(&info)
-	if err != nil {
+	if err != nil && err != io.EOF {
 		log.Error(err)
-	} else {
+	} else if err == nil {
 		s.RRDPInfo = info
 	}
 	f.Close()
@@ -642,7 +643,7 @@ func (s *state) MainValidation() {
 				counttal++
 			}
 		}
-		s.ROAsTALsCount = append(s.ROAsTALsCount, ROAsTAL{TA: talname, Count: counttal,})
+		s.ROAsTALsCount = append(s.ROAsTALsCount, ROAsTAL{TA: talname, Count: counttal})
 		MetricROAsCount.With(
 			prometheus.Labels{
 				"ta": talname,
@@ -711,23 +712,23 @@ type SIA struct {
 }
 
 type ROAsTAL struct {
-	TA string `json:"ta,omitempty"`
-	Count int `json:"count,omitempty"`
+	TA    string `json:"ta,omitempty"`
+	Count int    `json:"count,omitempty"`
 }
 
 type InfoResult struct {
-	Stable             bool     `json:"stable"`
-	TALs               []string `json:"tals"`
-	SIAs               []SIA    `json:"sia"`
-	Rsync              []Stats  `json:"sias-rsync,omitempty"`
-	RRDP               []Stats  `json:"sias-rrdp,omitempty"`
-	Iteration          int      `json:"iteration"`
-	LastValidation     int      `json:"validation-last"`
-	ValidationDuration float64  `json:"validation-duration"`
-	ValidationMessages []string `json:"validation-messages"`
-	ExploredFiles      int      `json:"validation-explored"`
-	ROAsTALs           []ROAsTAL      `json:"roas-tal-count"`
-	ROACount           int      `json:"roas-count"`
+	Stable             bool      `json:"stable"`
+	TALs               []string  `json:"tals"`
+	SIAs               []SIA     `json:"sia"`
+	Rsync              []Stats   `json:"sias-rsync,omitempty"`
+	RRDP               []Stats   `json:"sias-rrdp,omitempty"`
+	Iteration          int       `json:"iteration"`
+	LastValidation     int       `json:"validation-last"`
+	ValidationDuration float64   `json:"validation-duration"`
+	ValidationMessages []string  `json:"validation-messages"`
+	ExploredFiles      int       `json:"validation-explored"`
+	ROAsTALs           []ROAsTAL `json:"roas-tal-count"`
+	ROACount           int       `json:"roas-count"`
 }
 
 func (s *state) ServeInfo(w http.ResponseWriter, r *http.Request) {
@@ -884,9 +885,9 @@ func main() {
 			Data: make([]prefixfile.ROAJson, 0),
 		},
 
-		RsyncStats: make(map[string]Stats),
-		RRDPStats:  make(map[string]Stats),
-		ROAsTALsCount:  make([]ROAsTAL, 0),
+		RsyncStats:    make(map[string]Stats),
+		RRDPStats:     make(map[string]Stats),
+		ROAsTALsCount: make([]ROAsTAL, 0),
 	}
 
 	if *Sign {
