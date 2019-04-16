@@ -225,6 +225,9 @@ func (v *Validator) AddResource(pkifile *PKIFile, data []byte) (bool, []*PKIFile
 			return false, nil, nil, err
 		}
 		pathCert, res, err := v.AddTAL(tal)
+		if res == nil {
+			return true, pathCert, res, errors.New(fmt.Sprintf("Resource is empty: %v", err))
+		}
 		res.File = pkifile
 		for _, pc := range pathCert {
 			pc.Parent = pkifile
@@ -246,6 +249,9 @@ func (v *Validator) AddResource(pkifile *PKIFile, data []byte) (bool, []*PKIFile
 		}
 
 		valid, pathCert, res, err := v.AddCert(cert, pkifile.Trust)
+		if res == nil {
+			return valid, pathCert, res, errors.New(fmt.Sprintf("Resource is empty: %v", err))
+		}
 		res.Type = TYPE_CER
 		res.File = pkifile
 		for _, pc := range pathCert {
@@ -258,6 +264,9 @@ func (v *Validator) AddResource(pkifile *PKIFile, data []byte) (bool, []*PKIFile
 			return false, nil, nil, err
 		}
 		valid, res, err := v.AddROA(pkifile, roa)
+		if res == nil {
+			return valid, nil, res, errors.New(fmt.Sprintf("Resource is empty: %v", err))
+		}
 		res.File = pkifile
 		return valid, nil, res, err
 	case TYPE_MFT:
@@ -266,6 +275,9 @@ func (v *Validator) AddResource(pkifile *PKIFile, data []byte) (bool, []*PKIFile
 			return false, nil, nil, err
 		}
 		valid, pathCert, res, err := v.AddManifest(pkifile, mft)
+		if res == nil {
+			return valid, nil, res, errors.New(fmt.Sprintf("Resource is empty: %v", err))
+		}
 		res.File = pkifile
 		for _, pc := range pathCert {
 			pc.Parent = pkifile
@@ -278,6 +290,9 @@ func (v *Validator) AddResource(pkifile *PKIFile, data []byte) (bool, []*PKIFile
 			return false, nil, nil, err
 		}
 		valid, res, err := v.AddCRL(crl)
+		if res == nil {
+			return valid, nil, res, errors.New(fmt.Sprintf("Resource is empty: %v", err))
+		}
 		res.File = pkifile
 		return valid, nil, res, err
 	}
@@ -454,6 +469,9 @@ func (v *Validator) ValidateCertificate(cert *librpki.RPKI_Certificate, trust bo
 
 func (v *Validator) AddROA(pkifile *PKIFile, roa *librpki.RPKI_ROA) (bool, *Resource, error) {
 	valid, _, res, err := v.AddCert(roa.Certificate, false)
+	if res != nil {
+		return valid, res, errors.New(fmt.Sprintf("Resource is empty: %v", err))
+	}
 	res.File = pkifile
 	res.Type = TYPE_ROACER
 
@@ -465,7 +483,7 @@ func (v *Validator) AddROA(pkifile *PKIFile, roa *librpki.RPKI_ROA) (bool, *Reso
 
 	if !roa.InnerValid {
 		valid = false
-		err = roa.InnerValidityError
+		err = errors.New(fmt.Sprintf("ROA inner validity error: %v", roa.InnerValidityError))
 	}
 
 	res_roa := ObjectToResource(roa)
@@ -495,12 +513,15 @@ func (v *Validator) AddManifest(pkifile *PKIFile, mft *librpki.RPKI_Manifest) (b
 	pathCert := ExtractPathManifest(mft)
 
 	valid, _, res, err := v.AddCert(mft.Certificate, false)
+	if res != nil {
+		return valid, pathCert, res, errors.New(fmt.Sprintf("Resource is empty: %v", err))
+	}
 	res.File = pkifile
 	res.Type = TYPE_MFTCER
 
 	if !mft.InnerValid {
 		valid = false
-		err = mft.InnerValidityError
+		err = errors.New(fmt.Sprintf("Manifest inner validity error: %v", mft.InnerValidityError))
 	}
 
 	res_mft := ObjectToResource(mft)
