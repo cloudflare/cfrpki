@@ -469,7 +469,7 @@ func (v *Validator) ValidateCertificate(cert *librpki.RPKI_Certificate, trust bo
 
 func (v *Validator) AddROA(pkifile *PKIFile, roa *librpki.RPKI_ROA) (bool, *Resource, error) {
 	valid, _, res, err := v.AddCert(roa.Certificate, false)
-	if res != nil {
+	if res == nil {
 		return valid, res, errors.New(fmt.Sprintf("Resource is empty: %v", err))
 	}
 	res.File = pkifile
@@ -513,7 +513,7 @@ func (v *Validator) AddManifest(pkifile *PKIFile, mft *librpki.RPKI_Manifest) (b
 	pathCert := ExtractPathManifest(mft)
 
 	valid, _, res, err := v.AddCert(mft.Certificate, false)
-	if res != nil {
+	if res == nil {
 		return valid, pathCert, res, errors.New(fmt.Sprintf("Resource is empty: %v", err))
 	}
 	res.File = pkifile
