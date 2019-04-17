@@ -300,6 +300,7 @@ func (v *Validator) AddResource(pkifile *PKIFile, data []byte) (bool, []*PKIFile
 }
 
 func (v *Validator) InvalidateObject(keyid []byte) {
+	invalidated := make(map[string]bool)
 	invalidateList := make([][]byte, 1)
 	invalidateList[0] = keyid
 
@@ -308,10 +309,16 @@ func (v *Validator) InvalidateObject(keyid []byte) {
 		invalidateList = invalidateList[1:]
 
 		ski := string(currentKeyId)
+
+		if _, ok := invalidated[ski]; ok {
+			continue
+		}
+
 		res, hasCert := v.Objects[ski]
 		delete(v.ValidObjects, ski)
 		delete(v.ValidROA, ski)
 		delete(v.ValidCRL, ski)
+		invalidated[ski] = true
 
 		if hasCert {
 			for _, child := range res.Childs {
