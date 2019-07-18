@@ -658,6 +658,7 @@ func (s *state) MainValidation() {
 		Valid:     int(validTime.UnixNano()) / 1000000000,
 	}
 
+	roalist.Data = FilterDuplicates(roalist.Data)
 	if s.Sign {
 		signdate, sign, err := roalist.Sign(s.Key)
 		if err != nil {
@@ -667,7 +668,6 @@ func (s *state) MainValidation() {
 		roalist.Metadata.SignatureDate = signdate
 	}
 
-	roalist.Data = FilterDuplicates(roalist.Data)
 	s.ROAList = roalist
 }
 
