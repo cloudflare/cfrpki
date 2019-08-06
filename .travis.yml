@@ -1,0 +1,41 @@
+jobs:
+  include:
+    # Test
+    - stage: test
+      os: linux
+      language: go
+      env:
+        GO111MODULE=on
+      script:
+        - make vet
+    # Compile
+    - stage: compile
+      os: linux
+      language: go
+      env:
+        GO111MODULE=on
+        BUILDINFOSDET=-travis
+      before_install:
+        - sudo apt-get update
+        - sudo apt-get install -y rpm ruby ruby-dev
+        - sudo gem install fpm
+      script:
+        - GOOS=linux make build-octorpki
+        - GOOS=darwin make build-octorpki
+        - GOOS=windows EXTENSION=.exe make build-octorpki
+        - make package-deb-octorpki package-rpm-octorpki
+      deploy:
+        provider: releases
+        api_key:
+          secure: IFZ2c9FkeIiEh2+cWtx4fPWkG3iBeGEWLt7ER6F9C7NqucklWGTtQftoP/72+v5tKV5m+m205pTSuKL63kUWTlSH+zBhYuQCqgpURKJJ0cL+TR8WBYOftB83TG9Yxj2X1hwc2e9QILZvlKS17rycvTDTBOnBEnmM/jIbU4fymx+zcSstL6r/UyjJW5GUCeP6U9CEqrJ0DBnUokvnJk1Om0M/iSWe2Yt8QMxy3jXxEQZlrjzXUCSB6FaFme6t41ZbaYS5FT3uHXHzJUsqg67QshiRTzX1yTBClEnFws9LW/IC7RNnlchf2Ugih5p5X+czO3WWQjrpLyUVdavT5TQGr5GKKVeS/MCE1m/McFMdIOub/D7G307pbv4H0SP5pXAp+eUEoTgP35HcFm9iXLitBVBWlx5pnFheonNOEX42yd3YQ2sa7AC2EGDBIpfNvuuhRWn3P2EHI2lR1T9VkM3TPJLpEM+QSRClu5Fed78CUDYmOl9RRSOCyjGniqRoR8+NHx5plDhMAb3uSf8u1Rp4juFNOJNtKLmWyWHNRjkUhItykOKUdlpy9Czrjw2pmFJoGG0ohSXLgNZe1coI1K0VdevXeR1KaWqg9bllW6Ue3MAmWgeHc+YSJEbZDvls8PNQ1KKs+eMlz5xOiBnYNvKpQe3MwpL4a52whX/wNr6kVf0=
+        file_glob: true
+        file: dist/*
+        skip_cleanup: true
+        on:
+          tags: true
+          repo: cloudflare/octorpki
+    - dist: trusty
+      services:
+        - docker
+      script:
+        - make docker-octorpki
