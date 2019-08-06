@@ -33,7 +33,7 @@ jobs:
         skip_cleanup: true
         on:
           tags: true
-          repo: cloudflare/octorpki
+          repo: cloudflare/cfrpki
     - dist: trusty
       services:
         - docker
