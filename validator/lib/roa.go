@@ -173,7 +173,7 @@ func DecodeROA(data []byte) (*RPKI_ROA, error) {
 	rpki_roa := RPKI_ROA{
 		BadFormat: badformat,
 		Entries:   entries,
-		ASN: asn,
+		ASN:       asn,
 	}
 
 	rpki_roa.SigningTime, _ = c.GetSigningTime()

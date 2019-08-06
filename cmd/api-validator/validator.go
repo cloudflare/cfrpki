@@ -1,20 +1,20 @@
 package main
 
 import (
-	"flag"
-	"github.com/cloudflare/cfrpki/validator/pki"
-	"github.com/cloudflare/cfrpki/validator/lib"
-    "github.com/cloudflare/cfrpki/sync/api"
-	log "github.com/sirupsen/logrus"
-	"google.golang.org/grpc"
-	"strings"
-	"runtime"
 	"context"
 	"encoding/asn1"
 	"encoding/json"
+	"flag"
 	"fmt"
+	"github.com/cloudflare/cfrpki/sync/api"
+	"github.com/cloudflare/cfrpki/validator/lib"
+	"github.com/cloudflare/cfrpki/validator/pki"
+	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
 	"io"
 	"os"
+	"runtime"
+	"strings"
 )
 
 var (
@@ -24,7 +24,7 @@ var (
 	UseManifest = flag.Bool("manifest.use", true, "Use manifests file to explore instead of going into the repository")
 	LogLevel    = flag.String("loglevel", "info", "Log level")
 
-	Output   = flag.String("output.roa", "output.json", "Output ROA file")
+	Output = flag.String("output.roa", "output.json", "Output ROA file")
 
 	CertRepository = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 5}
 	CertRRDP       = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 13}

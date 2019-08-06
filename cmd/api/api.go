@@ -2,19 +2,19 @@ package main
 
 import (
 	"bytes"
-	"github.com/cloudflare/cfrpki/sync/lib"
-	"github.com/cloudflare/cfrpki/sync/api"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
-	"net"
-	"time"
+	"github.com/cloudflare/cfrpki/sync/api"
+	"github.com/cloudflare/cfrpki/sync/lib"
 	"github.com/go-redis/redis"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"net"
+	"time"
 )
 
 var (
