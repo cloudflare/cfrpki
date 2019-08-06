@@ -43,6 +43,10 @@ const (
 )
 
 var (
+	version    = ""
+	buildinfos = ""
+	AppVersion = "OctoRPKI " + version + " " + buildinfos
+
 	// Validator Options
 	RootTAL     = flag.String("tal.root", "tals/afrinic.tal,tals/apnic.tal,tals/arin.tal,tals/lacnic.tal,tals/ripe.tal", "List of TAL separated by comma")
 	TALNames    = flag.String("tal.name", "AFRINIC,APNIC,ARIN,LACNIC,RIPE", "Name of the TALs")
@@ -78,6 +82,8 @@ var (
 	Sign     = flag.Bool("output.sign", true, "Sign output (GoRTR compatible)")
 	SignKey  = flag.String("output.sign.key", "private.pem", "ECDSA signing key")
 	Validity = flag.String("output.sign.validity", "1h", "Validity")
+
+	Version = flag.Bool("version", false, "Print version")
 
 	CertRepository = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 5}
 	CertRRDP       = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 13}
@@ -828,6 +834,11 @@ func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	flag.Parse()
+	if *Version {
+		fmt.Println(AppVersion)
+		os.Exit(0)
+	}
+
 	lvl, _ := log.ParseLevel(*LogLevel)
 	log.SetLevel(lvl)
 	log.Infof("Validator started")
