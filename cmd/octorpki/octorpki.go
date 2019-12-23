@@ -61,7 +61,7 @@ var (
 
 	// RRDP Options
 	RRDP     = flag.Bool("rrdp", true, "Enable RRDP fetching")
-	RRDPFile = flag.String("rrdp.file", "rrdp.json", "Save RRDP state")
+	RRDPFile = flag.String("rrdp.file", "cache/rrdp.json", "Save RRDP state")
 	RRDPMode = flag.Int("rrdp.mode", RRDP_MATCH_RSYNC, fmt.Sprintf("RRDP security mode (%v = no check, %v = match rsync domain, %v = match path)",
 		RRDP_NO_MATCH, RRDP_MATCH_RSYNC, RRDP_MATCH_STRICT))
 
@@ -856,6 +856,11 @@ func main() {
 	}
 	timeoutDur, _ := time.ParseDuration(*RsyncTimeout)
 	timeValidity, _ := time.ParseDuration(*Validity)
+
+	err := os.MkdirAll(*Basepath, os.ModePerm)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	s := &state{
 		Basepath:     *Basepath,
