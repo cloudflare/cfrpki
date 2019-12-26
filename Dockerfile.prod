@@ -19,6 +19,6 @@ COPY --from=builder /go/bin/octorpki /
 COPY cmd/octorpki/private.pem /
 COPY cmd/octorpki/tals /tals
 
-VOLUME ["/tals"]
+VOLUME ["/cache"]
 
 ENTRYPOINT ["./octorpki"]

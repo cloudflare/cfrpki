@@ -24,6 +24,6 @@ USER rpki
 COPY --from=builder ${src_dir}/octorpki ${src_dir}/cmd/octorpki/private.pem /
 COPY --from=builder ${src_dir}/cmd/octorpki/tals /tals
 
-VOLUME ["/tals"]
+VOLUME ["/cache"]
 
 ENTRYPOINT ["./octorpki"]
