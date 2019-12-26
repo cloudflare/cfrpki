@@ -70,7 +70,7 @@ func (s *RsyncSystem) RunRsync(ctx context.Context, uri string, bin string, dirP
 		return nil, err
 	}
 
-	cmd := exec.CommandContext(ctx, bin, "-var", "--delete-delay", uri, dirPath)
+	cmd := exec.CommandContext(ctx, bin, "-var", uri, dirPath)
 	if s.Log != nil {
 		s.Log.Debugf("Command ran: %v", cmd)
 	}
