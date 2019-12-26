@@ -8,6 +8,7 @@ jobs:
         GO111MODULE=on
       script:
         - make vet
+        - make test
     # Compile
     - stage: compile
       os: linux

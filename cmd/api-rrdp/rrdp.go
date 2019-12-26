@@ -101,7 +101,7 @@ type state struct {
 	ToWithdraw []*RRDPFile
 }
 
-func (s *state) ReceiveRRDPFileCallback(url string, path string, data []byte, withdraw bool, snapshot bool) error {
+func (s *state) ReceiveRRDPFileCallback(main string, url string, path string, data []byte, withdraw bool, snapshot bool, curId int64, args ...interface{}) error {
 	if !withdraw {
 		s.ToPublish = append(s.ToPublish, &RRDPFile{
 			URI:  path,

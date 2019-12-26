@@ -19,7 +19,11 @@ OUTPUT_OCTORPKI := $(DIST_DIR)octorpki-$(OCTORPKI_VERSION)-$(GOOS)-$(ARCH)$(EXTE
 
 .PHONY: vet
 vet:
-	go vet cmd/octorpki/octorpki.go
+	go vet -v ./...
+
+.PHONY: test
+test:
+	go test -v ./...
 
 .PHONY: prepare
 prepare:
