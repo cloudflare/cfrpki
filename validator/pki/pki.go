@@ -358,7 +358,7 @@ func (v *Validator) AddCert(cert *librpki.RPKI_Certificate, trust bool) (bool, [
 
 	_, exists := v.Objects[ski]
 	if exists {
-		return false, nil, nil, errors.New(fmt.Sprintf("A certificate with Subject Key Id: %v already exists", hex.EncodeToString))
+		return false, nil, nil, errors.New(fmt.Sprintf("A certificate with Subject Key Id: %v already exists", hex.EncodeToString(cert.Certificate.SubjectKeyId)))
 	}
 
 	_, hasParentValid := v.ValidObjects[aki]

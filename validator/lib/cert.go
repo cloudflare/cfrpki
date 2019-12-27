@@ -3,11 +3,13 @@ package librpki
 import (
 	"bytes"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
+	"sort"
 	"time"
 )
 
@@ -22,10 +24,20 @@ var (
 	AutonomousSysIdsV2 = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 1, 29}
 	IpAddrAndASIdent   = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 1, 30}
 
-	SubjectInfoAccess = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 1, 11}
+	CertPolicy         = asn1.ObjectIdentifier{2, 5, 29, 32}
+	ResourceCertPolicy = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 14, 2}
+	CPS                = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 2, 1}
+
+	SubjectInfoAccess   = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 1, 11}
+	AuthorityInfoAccess = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 1, 1}
+	CAIssuer            = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 2}
+	SignedObject        = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 11}
 
 	SubjectKeyIdentifier   = asn1.ObjectIdentifier{2, 5, 29, 14}
 	AuthorityKeyIdentifier = asn1.ObjectIdentifier{2, 5, 29, 35}
+
+	CertRepository = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 5}
+	CertRRDP       = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 13}
 )
 
 type IPNet struct {
@@ -52,6 +64,10 @@ func (ipn *IPNet) GetAfi() uint8 {
 func (ipn *IPNet) GetRange() (net.IP, net.IP, bool) {
 	min, max := GetRangeIP(ipn.IPNet)
 	return min, max, false
+}
+
+func (ipn *IPNet) ASN1() ([]byte, error) {
+	return asn1.Marshal(IPNetToBitString(*ipn.IPNet))
 }
 
 type IPAddressRange struct {
@@ -85,6 +101,42 @@ func (ipr *IPAddressRange) GetRange() (net.IP, net.IP, bool) {
 	return ipr.Min, ipr.Max, false
 }
 
+func IPToBitString(ip net.IP) asn1.BitString {
+	blen := 32
+	bitsplit := 12
+	if ip.To4() == nil {
+		blen = 128
+		bitsplit = 0
+	}
+	return asn1.BitString{
+		Bytes:     []byte(ip)[bitsplit:],
+		BitLength: blen,
+	}
+}
+
+func IPNetToBitString(ipnet net.IPNet) asn1.BitString {
+	size, _ := ipnet.Mask.Size()
+	sizeBytes := size / 8
+	if size%8 > 0 {
+		sizeBytes++
+	}
+	prefixBytes := make([]byte, sizeBytes)
+	for i := 0; i < len(ipnet.IP) && i < sizeBytes; i++ {
+		prefixBytes[i] = ipnet.IP[i] & ipnet.Mask[i]
+	}
+
+	return asn1.BitString{
+		Bytes:     prefixBytes,
+		BitLength: size,
+	}
+}
+
+func (ipr *IPAddressRange) ASN1() ([]byte, error) {
+	return asn1.Marshal([]asn1.BitString{IPToBitString(ipr.Min), IPToBitString(ipr.Max)})
+}
+
+// Add IP address type (just bit string)
+
 type IPAddressNull struct {
 	Family uint8
 }
@@ -110,17 +162,25 @@ func (ipan *IPAddressNull) GetRange() (net.IP, net.IP, bool) {
 	return nil, nil, true
 }
 
+func (ipan *IPAddressNull) ASN1() ([]byte, error) {
+	return asn1.Marshal(asn1.NullRawValue)
+}
+
 type IPCertificateInformation interface {
 	GetRange() (net.IP, net.IP, bool)
 	IsIPInRange(net.IP) (bool, bool)
 	String() string
 	GetAfi() uint8
+
+	ASN1() ([]byte, error)
 }
 
 type ASNCertificateInformation interface {
 	GetRange() (int, int, bool)
 	IsASNInRange(int) (bool, bool)
 	String() string
+
+	ASN1() ([]byte, error)
 }
 
 type ASNRange struct {
@@ -140,6 +200,10 @@ func (ar *ASNRange) GetRange() (int, int, bool) {
 	return ar.Min, ar.Max, false
 }
 
+func (ar *ASNRange) ASN1() ([]byte, error) {
+	return asn1.Marshal([]int{ar.Min, ar.Max})
+}
+
 type ASN struct {
 	ASN int
 }
@@ -156,6 +220,10 @@ func (a *ASN) GetRange() (int, int, bool) {
 	return a.ASN, a.ASN, false
 }
 
+func (a *ASN) ASN1() ([]byte, error) {
+	return asn1.Marshal(a.ASN)
+}
+
 type ASNull struct {
 }
 
@@ -169,6 +237,10 @@ func (an *ASNull) IsASNInRange(asn int) (bool, bool) {
 
 func (an *ASNull) GetRange() (int, int, bool) {
 	return 0, 0, true
+}
+
+func (an *ASNull) ASN1() ([]byte, error) {
+	return asn1.Marshal(asn1.NullRawValue)
 }
 
 func DecodeIP(addrfamily []byte, addr asn1.BitString) (*net.IPNet, error) {
@@ -542,6 +614,246 @@ func DecodeKeyIdentifier(data []byte) ([]byte, error) {
 		return key, err
 	}
 	return key, nil
+}
+
+// Put in ExtraExtensions
+// https://tools.ietf.org/html/rfc3779
+func GroupIPAddressBlock(ips []IPCertificateInformation) map[byte][]IPCertificateInformation {
+	mapIps := make(map[byte][]IPCertificateInformation)
+	for _, ip := range ips {
+		afi := ip.GetAfi()
+		ipsList, ok := mapIps[afi]
+		if !ok {
+			ipsList = make([]IPCertificateInformation, 0)
+		}
+		ipsList = append(ipsList, ip)
+
+		mapIps[afi] = ipsList
+	}
+	return mapIps
+}
+
+func EncodeInfoAccess(authority bool, path string) (*pkix.Extension, error) {
+	type SubStruct struct {
+		OID  asn1.ObjectIdentifier
+		Path string `asn1:"implicit,tag:6"`
+	}
+
+	oid1 := SubjectInfoAccess
+	oid2 := SignedObject
+	if authority {
+		oid1 = AuthorityInfoAccess
+		oid2 = CAIssuer
+	}
+
+	substruct := SubStruct{
+		OID:  oid2,
+		Path: path,
+	}
+
+	iasBytes, err := asn1.Marshal([]interface{}{substruct})
+	if err != nil {
+		return nil, err
+	}
+	ext := &pkix.Extension{
+		Id:    oid1,
+		Value: iasBytes,
+	}
+	return ext, nil
+}
+
+// https://tools.ietf.org/html/rfc7318
+func EncodePolicyInformation(cps string) (*pkix.Extension, error) {
+	type CertificatePolicy struct {
+		OID    asn1.ObjectIdentifier
+		Policy []interface{}
+	}
+	type CPSStruct struct {
+		OID asn1.ObjectIdentifier
+		CPS string `asn1:"ia5"`
+	}
+	certPolicy := CertificatePolicy{
+		OID: ResourceCertPolicy,
+	}
+	if cps != "" {
+		cpss := CPSStruct{
+			OID: CPS,
+			CPS: cps,
+		}
+
+		certPolicy.Policy = []interface{}{
+			cpss,
+		}
+	}
+
+	policyGroupBytes, err := asn1.Marshal([]CertificatePolicy{certPolicy})
+	if err != nil {
+		return nil, err
+	}
+	ext := &pkix.Extension{
+		Id:       CertPolicy,
+		Critical: true,
+		Value:    policyGroupBytes,
+	}
+	return ext, nil
+}
+
+func EncodeIPAddressBlock(ips []IPCertificateInformation) (*pkix.Extension, error) {
+	groups := GroupIPAddressBlock(ips)
+
+	versionList := make([]int, 0)
+	for version, _ := range groups {
+		versionList = append(versionList, int(version))
+	}
+	sort.Ints(versionList)
+
+	groupAsn1 := make([]asn1.RawValue, 0)
+	for _, cversion := range versionList {
+		version := byte(cversion)
+		ipBytes, err := EncodeIPAddressBlockVersion(version, groups[version], 0, false)
+		if err != nil {
+			return nil, err
+		}
+		groupAsn1 = append(groupAsn1, asn1.RawValue{FullBytes: ipBytes})
+	}
+
+	ipGroupBytes, err := asn1.Marshal(groupAsn1)
+	if err != nil {
+		return nil, err
+	}
+	ext := &pkix.Extension{
+		Id:       IpAddrBlock,
+		Critical: true,
+		Value:    ipGroupBytes,
+	}
+	return ext, nil
+}
+
+func EncodeIPAddressBlockVersion(version byte, ips []IPCertificateInformation, safi byte, addSafi bool) ([]byte, error) {
+	type Ip struct {
+		Version []byte
+		Ips     []asn1.RawValue
+	}
+	type IpNull struct {
+		Version []byte
+		Ips     asn1.RawValue
+	}
+
+	ver := []byte{0, version}
+	if addSafi {
+		ver = append(ver, safi)
+	}
+
+	ipSeq := Ip{
+		Version: ver,
+		Ips:     make([]asn1.RawValue, 0),
+	}
+	for _, ip := range ips {
+		ipBytes, err := ip.ASN1()
+		if err != nil {
+			return nil, err
+		}
+
+		switch ip.(type) {
+		case *IPAddressNull:
+			return asn1.Marshal(IpNull{
+				Version: ver,
+				Ips:     asn1.RawValue{FullBytes: ipBytes},
+			})
+		}
+
+		ipSeq.Ips = append(ipSeq.Ips, asn1.RawValue{FullBytes: ipBytes})
+	}
+
+	return asn1.Marshal(ipSeq)
+}
+
+// https://tools.ietf.org/html/rfc6487
+func EncodeASNSeq(asns []ASNCertificateInformation) ([]asn1.RawValue, error) {
+	if len(asns) == 0 {
+		return nil, nil
+	}
+
+	asnSeq := make([]asn1.RawValue, 0)
+	for _, asn := range asns {
+		asnBytes, err := asn.ASN1()
+		if err != nil {
+			return nil, err
+		}
+		asnStruct := asn1.RawValue{
+			FullBytes: asnBytes,
+		}
+		asnSeq = append(asnSeq, asnStruct)
+
+		switch asn.(type) {
+		case *ASNull:
+			return asnSeq, nil
+		}
+	}
+
+	m, err := asn1.Marshal(asnSeq)
+	if err != nil {
+		return nil, err
+	}
+
+	return []asn1.RawValue{asn1.RawValue{FullBytes: m}}, nil
+}
+
+func EncodeASN(nums []ASNCertificateInformation, rdi []ASNCertificateInformation) (*pkix.Extension, error) {
+	asnSeq, err := EncodeASNSeq(nums)
+	if err != nil {
+		return nil, err
+	}
+	rdiSeq, err := EncodeASNSeq(rdi)
+	if err != nil {
+		return nil, err
+	}
+
+	type AsnStruct struct {
+		ASN []asn1.RawValue `asn1:"tag:0,omitempty"`
+		RDI []asn1.RawValue `asn1:"tag:1,omitempty"`
+	}
+	asnTotalStruct := AsnStruct{
+		ASN: asnSeq,
+		RDI: rdiSeq,
+	}
+
+	asnSeqBytes, err := asn1.Marshal(asnTotalStruct)
+	if err != nil {
+		return nil, err
+	}
+
+	ext := &pkix.Extension{
+		Id:       AutonomousSysIds,
+		Critical: true,
+		Value:    asnSeqBytes,
+	}
+	return ext, nil
+}
+
+func EncodeSIA(sias []*SIA) (*pkix.Extension, error) {
+	siaSeq := make([]asn1.RawValue, 0)
+	for _, sia := range sias {
+		siaBytes, err := asn1.Marshal(*sia)
+		if err != nil {
+			return nil, err
+		}
+		siaStruct := asn1.RawValue{
+			FullBytes: siaBytes,
+		}
+		siaSeq = append(siaSeq, siaStruct)
+	}
+
+	siaSeqBytes, err := asn1.Marshal(siaSeq)
+	if err != nil {
+		return nil, err
+	}
+
+	ext := &pkix.Extension{
+		Id:    SubjectInfoAccess,
+		Value: siaSeqBytes,
+	}
+	return ext, nil
 }
 
 func DecodeCertificate(data []byte) (*RPKI_Certificate, error) {

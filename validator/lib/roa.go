@@ -5,7 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sort"
 	"time"
+)
+
+var (
+	RoaOID = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 1, 24}
 )
 
 type ROAIPAddresses struct {
@@ -46,6 +51,86 @@ type RPKI_ROA struct {
 	Valids      []*ROA_Entry
 	Invalids    []*ROA_Entry
 	CheckParent []*ROA_Entry
+}
+
+func ROAToEncap(roa *ROA) ([]byte, error) {
+	return EContentToEncap(roa.EContent.FullBytes)
+}
+
+func GroupEntries(entries []*ROA_Entry) map[byte][]*ROA_Entry {
+	mapIps := make(map[byte][]*ROA_Entry)
+	for _, entry := range entries {
+		afi := byte(2)
+		if entry.IPNet.IP.To4() != nil {
+			afi = 1
+		}
+
+		ipsList, ok := mapIps[afi]
+		if !ok {
+			ipsList = make([]*ROA_Entry, 0)
+		}
+		ipsList = append(ipsList, entry)
+
+		mapIps[afi] = ipsList
+	}
+	return mapIps
+}
+
+func EncodeROAEntries(asn int, entries []*ROA_Entry) (*ROA, error) {
+	groups := GroupEntries(entries)
+
+	versionList := make([]int, 0)
+	for version, _ := range groups {
+		versionList = append(versionList, int(version))
+	}
+	sort.Ints(versionList)
+
+	roaFam := make([]ROAAddressFamily, 0)
+	for _, cversion := range versionList {
+		version := byte(cversion)
+
+		listAddresses := make([]ROAIPAddresses, 0)
+		for _, v := range groups[version] {
+			ipnetbs := IPNetToBitString(*v.IPNet)
+			listAddresses = append(listAddresses, ROAIPAddresses{
+				Address:   ipnetbs,
+				MaxLength: v.MaxLength,
+			})
+		}
+
+		roa := ROAAddressFamily{
+			AddressFamily: []byte{0, version},
+			Addresses:     listAddresses,
+		}
+		roaFam = append(roaFam, roa)
+	}
+
+	eContent := ROAContent{
+		ASID:         asn,
+		IpAddrBlocks: roaFam,
+	}
+	eContentEnc, err := asn1.Marshal(eContent)
+	if err != nil {
+		return nil, err
+	}
+
+	// Present in ARIN ROAs
+	/*
+		eContentEnc, err = asn1.Marshal(eContentEnc)
+		if err != nil {
+			return nil, err
+		}*/
+
+	eContentEnc, err = asn1.MarshalWithParams(eContentEnc, "tag:0,explicit")
+	if err != nil {
+		return nil, err
+	}
+
+	roa := &ROA{
+		OID:      RoaOID,
+		EContent: asn1.RawValue{FullBytes: eContentEnc},
+	}
+	return roa, nil
 }
 
 func GetRangeIP(ipnet *net.IPNet) (net.IP, net.IP) {
@@ -152,7 +237,6 @@ func DecodeROA(data []byte) (*RPKI_ROA, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	fullbytes, badformat, err := BadFormatGroup(inner.Bytes)
 	if err != nil {
 		return nil, err
