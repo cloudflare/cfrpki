@@ -170,9 +170,14 @@ type RRDPInfo struct {
 	Serial    int64  `json:"serial"`
 }
 
+var errKeyNotParsed = fmt.Errorf("Failed to PEM decode key")
+
 func ReadKey(key []byte, isPem bool) (*ecdsa.PrivateKey, error) {
 	if isPem {
 		block, _ := pem.Decode(key)
+		if block == nil {
+			return nil, errKeyNotParsed
+		}
 		key = block.Bytes
 	}
 
