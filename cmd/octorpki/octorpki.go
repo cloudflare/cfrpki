@@ -34,6 +34,10 @@ import (
 	"github.com/cloudflare/gortr/prefixfile"
 	log "github.com/sirupsen/logrus"
 
+	// Debugging
+	"github.com/opentracing/opentracing-go"
+	"github.com/uber/jaeger-client-go"
+	jcfg "github.com/uber/jaeger-client-go/config"
 	"net/http/pprof"
 )
 
@@ -85,7 +89,9 @@ var (
 	Validity = flag.String("output.sign.validity", "1h", "Validity")
 
 	// Debugging options
-	Pprof = flag.Bool("pprof", false, "Enable pprof endpoint")
+	Pprof      = flag.Bool("pprof", false, "Enable pprof endpoint")
+	Tracer     = flag.Bool("tracer", false, "Enable tracer")
+	TracerName = flag.String("tracer.name", "octorpki", "Trace service name")
 
 	Version = flag.Bool("version", false, "Print version")
 
@@ -396,9 +402,22 @@ func (s *state) SaveRRDP(file string) {
 	f.Close()
 }
 
-func (s *state) MainRRDP() {
+func (s *state) MainRRDP(pSpan opentracing.Span) {
+	tracer := opentracing.GlobalTracer()
+	span := tracer.StartSpan(
+		"rrdp",
+		opentracing.ChildOf(pSpan.Context()),
+	)
+	defer span.Finish()
+
 	for rsync, v := range s.FinalRRDPFetch {
 		for _, vv := range v {
+			rSpan := tracer.StartSpan(
+				"sync",
+				opentracing.ChildOf(span.Context()),
+			)
+			rSpan.SetTag("rrdp", vv)
+			rSpan.SetTag("rsync", rsync)
 			log.Infof("RRDP sync %v", vv)
 
 			rrdpid := vv
@@ -439,6 +458,8 @@ func (s *state) MainRRDP() {
 			err := rrdp.FetchRRDP(rsync)
 			t2 := time.Now().UTC()
 			if err != nil {
+				rSpan.SetTag("error", true)
+				rSpan.LogKV("event", "rrdp failure", "type", "failover to rsync", "message", err)
 				log.Errorf("Error when processing %v (for %v): %v. Will add to rsync.", path, rsync, err)
 				s.FailoverRsync = append(s.FailoverRsync, rsync)
 
@@ -455,6 +476,8 @@ func (s *state) MainRRDP() {
 				s.RRDPStats[vv] = tmpStats
 				continue
 			}
+
+			rSpan.Finish()
 			s.Fetcher.PathAvailable = append(s.Fetcher.PathAvailable, rsync)
 			MetricRRDPSerial.With(
 				prometheus.Labels{
@@ -483,7 +506,14 @@ func (s *state) MainRRDP() {
 	}
 }
 
-func (s *state) MainRsync() {
+func (s *state) MainRsync(pSpan opentracing.Span) {
+	tracer := opentracing.GlobalTracer()
+	span := tracer.StartSpan(
+		"rsync",
+		opentracing.ChildOf(pSpan.Context()),
+	)
+	defer span.Finish()
+
 	rsync := syncpki.RsyncSystem{
 		Log: log.StandardLogger(),
 	}
@@ -495,6 +525,12 @@ func (s *state) MainRsync() {
 	rsyncList = append(rsyncList, s.FailoverRsync...)
 
 	for _, v := range rsyncList {
+		rSpan := tracer.StartSpan(
+			"sync",
+			opentracing.ChildOf(span.Context()),
+		)
+		rSpan.SetTag("url", v)
+
 		log.Infof("Rsync sync %v", v)
 		downloadPath, err := syncpki.GetDownloadPath(v, true)
 		if err != nil {
@@ -513,6 +549,9 @@ func (s *state) MainRsync() {
 		files, err := rsync.RunRsync(ctxRsync, v, s.RsyncBin, path)
 		t2 := time.Now().UTC()
 		if err != nil {
+			rSpan.SetTag("error", true)
+			rSpan.LogKV("event", "rsync failure", "message", err)
+			log.Errorf("Error when processing %v (for %v): %v. Will add to rsync.", path, rsync, err)
 			log.Error(err)
 			MetricRsyncErrors.With(
 				prometheus.Labels{
@@ -531,6 +570,9 @@ func (s *state) MainRsync() {
 		if files != nil {
 			countFiles = len(files)
 		}
+
+		rSpan.Finish()
+
 		MetricSIACounts.With(
 			prometheus.Labels{
 				"address": v,
@@ -583,9 +625,22 @@ func FilterDuplicates(roalist []prefixfile.ROAJson) []prefixfile.ROAJson {
 	return roalistNodup
 }
 
-func (s *state) MainValidation() {
+func (s *state) MainValidation(pSpan opentracing.Span) {
+	tracer := opentracing.GlobalTracer()
+	span := tracer.StartSpan(
+		"validation",
+		opentracing.ChildOf(pSpan.Context()),
+	)
+	defer span.Finish()
+
 	manager := make([]*pki.SimpleManager, len(s.Tals))
 	for i, tal := range s.Tals {
+		tSpan := tracer.StartSpan(
+			"explore",
+			opentracing.ChildOf(span.Context()),
+		)
+		tSpan.SetTag("tal", tal.Path)
+
 		validator := pki.NewValidator()
 
 		manager[i] = pki.NewSimpleManager()
@@ -630,6 +685,8 @@ func (s *state) MainValidation() {
 				count++
 			}
 		}
+		tSpan.LogKV("count-valid", count, "count-total", s.CountExplore)
+		tSpan.Finish()
 	}
 
 	// Generating ROAs list
@@ -639,6 +696,11 @@ func (s *state) MainValidation() {
 	var counts int
 	s.ROAsTALsCount = make([]ROAsTAL, 0)
 	for i, tal := range s.Tals {
+		eSpan := tracer.StartSpan(
+			"extract",
+			opentracing.ChildOf(span.Context()),
+		)
+		eSpan.SetTag("tal", tal.Path)
 		talname := tal.Path
 		if len(s.TalNames) == len(s.Tals) {
 			talname = s.TalNames[i]
@@ -660,6 +722,8 @@ func (s *state) MainValidation() {
 				counttal++
 			}
 		}
+		eSpan.Finish()
+
 		s.ROAsTALsCount = append(s.ROAsTALsCount, ROAsTAL{TA: talname, Count: counttal})
 		MetricROAsCount.With(
 			prometheus.Labels{
@@ -677,12 +741,19 @@ func (s *state) MainValidation() {
 
 	roalist.Data = FilterDuplicates(roalist.Data)
 	if s.Sign {
+		sSpan := tracer.StartSpan(
+			"sign",
+			opentracing.ChildOf(span.Context()),
+		)
+
 		signdate, sign, err := roalist.Sign(s.Key)
 		if err != nil {
 			log.Error(err)
 		}
 		roalist.Metadata.Signature = sign
 		roalist.Metadata.SignatureDate = signdate
+
+		sSpan.Finish()
 	}
 
 	s.ROAList = roalist
@@ -862,6 +933,25 @@ func main() {
 	log.SetLevel(lvl)
 	log.Infof("Validator started")
 
+	if *Tracer {
+		cfg := jcfg.Configuration{
+			ServiceName: *TracerName,
+			Sampler: &jcfg.SamplerConfig{
+				Type:  jaeger.SamplerTypeConst,
+				Param: 1,
+			},
+			Reporter: &jcfg.ReporterConfig{
+				LogSpans: true,
+			},
+		}
+		tracer, closer, err := cfg.NewTracer()
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer closer.Close()
+		opentracing.SetGlobalTracer(tracer)
+	}
+
 	mainRefresh, _ := time.ParseDuration(*Refresh)
 
 	rootTALs := strings.Split(*RootTAL, ",")
@@ -951,7 +1041,11 @@ func main() {
 	}
 
 	for {
+		tracer := opentracing.GlobalTracer()
+		span := tracer.StartSpan("operation")
+
 		s.Iteration++
+		span.SetTag("iteration", s.Iteration)
 		s.FailoverRsync = make([]string, 0)
 		s.Fetcher.PathAvailable = make([]string, 0)
 		if *RRDP {
@@ -960,7 +1054,7 @@ func main() {
 			if *RRDPFile != "" {
 				s.LoadRRDP(*RRDPFile)
 			}
-			s.MainRRDP()
+			s.MainRRDP(span)
 			if *RRDPFile != "" {
 				s.SaveRRDP(*RRDPFile)
 			}
@@ -976,7 +1070,7 @@ func main() {
 		t1 := time.Now().UTC()
 
 		// Rsync
-		s.MainRsync()
+		s.MainRsync(span)
 
 		t2 := time.Now().UTC()
 		MetricOperationTime.With(
@@ -989,7 +1083,7 @@ func main() {
 		t1 = time.Now().UTC()
 
 		// Validation
-		s.MainValidation()
+		s.MainValidation(span)
 
 		t2 = time.Now().UTC()
 		s.ValidationDuration = t2.Sub(t1)
@@ -1033,6 +1127,8 @@ func main() {
 			break
 		}
 
+		span.SetTag("stable", s.Stable)
+		span.Finish()
 		if s.Stable {
 			MetricLastStableValidation.Set(float64(s.LastComputed.UnixNano() / 1000000000))
 			MetricState.Set(float64(1))
@@ -1045,5 +1141,6 @@ func main() {
 
 			log.Info("Still exploring. Revalidating now")
 		}
+
 	}
 }
