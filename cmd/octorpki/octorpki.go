@@ -32,8 +32,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/cloudflare/gortr/prefixfile"
-	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
+
+	"net/http/pprof"
 )
 
 const (
@@ -82,6 +83,9 @@ var (
 	Sign     = flag.Bool("output.sign", true, "Sign output (GoRTR compatible)")
 	SignKey  = flag.String("output.sign.key", "private.pem", "ECDSA signing key")
 	Validity = flag.String("output.sign.validity", "1h", "Validity")
+
+	// Debugging options
+	Pprof = flag.Bool("pprof", false, "Enable pprof endpoint")
 
 	Version = flag.Bool("version", false, "Print version")
 
@@ -246,6 +250,8 @@ type state struct {
 	Iteration          int
 	ValidationMessages []string
 	ROAsTALsCount      []ROAsTAL
+
+	Pprof bool
 }
 
 func (s *state) MainReduce() bool {
@@ -806,11 +812,19 @@ func (s *state) Serve(addr string, path string, metricsPath string, infoPath str
 	}
 	log.Infof("Serving HTTP on %v%v", addr, fullPath)
 
-	r := mux.NewRouter()
+	r := http.NewServeMux()
 
 	r.HandleFunc(fullPath, s.ServeROAs)
 	r.HandleFunc(infoPath, s.ServeInfo)
 	r.Handle(metricsPath, promhttp.Handler())
+
+	if s.Pprof {
+		r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		r.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		r.HandleFunc("/debug/pprof/trace", pprof.Trace)
+		r.HandleFunc("/debug/pprof/", pprof.Index)
+	}
 
 	corsReq := cors.New(cors.Options{
 		AllowedOrigins:   strings.Split(corsOrigin, ","),
@@ -818,11 +832,11 @@ func (s *state) Serve(addr string, path string, metricsPath string, infoPath str
 		AllowCredentials: corsCreds,
 	}).Handler(r)
 
-	http.Handle("/", corsReq)
-	log.Fatal(http.ListenAndServe(addr, nil))
+	log.Fatal(http.ListenAndServe(addr, corsReq))
 }
 
 func init() {
+
 	prometheus.MustRegister(MetricSIACounts)
 	prometheus.MustRegister(MetricRsyncErrors)
 	prometheus.MustRegister(MetricRRDPErrors)
@@ -909,6 +923,8 @@ func main() {
 		RsyncStats:    make(map[string]Stats),
 		RRDPStats:     make(map[string]Stats),
 		ROAsTALsCount: make([]ROAsTAL, 0),
+
+		Pprof: *Pprof,
 	}
 
 	if *Sign {
