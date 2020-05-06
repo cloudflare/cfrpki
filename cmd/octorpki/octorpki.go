@@ -36,7 +36,6 @@ import (
 
 	// Debugging
 	"github.com/opentracing/opentracing-go"
-	"github.com/uber/jaeger-client-go"
 	jcfg "github.com/uber/jaeger-client-go/config"
 	"net/http/pprof"
 )
@@ -89,9 +88,8 @@ var (
 	Validity = flag.String("output.sign.validity", "1h", "Validity")
 
 	// Debugging options
-	Pprof      = flag.Bool("pprof", false, "Enable pprof endpoint")
-	Tracer     = flag.Bool("tracer", false, "Enable tracer")
-	TracerName = flag.String("tracer.name", "octorpki", "Trace service name")
+	Pprof  = flag.Bool("pprof", false, "Enable pprof endpoint")
+	Tracer = flag.Bool("tracer", false, "Enable tracer")
 
 	Version = flag.Bool("version", false, "Print version")
 
@@ -474,6 +472,7 @@ func (s *state) MainRRDP(pSpan opentracing.Span) {
 				tmpStats.LastError = fmt.Sprint(err)
 				tmpStats.Duration = t2.Sub(t1).Seconds()
 				s.RRDPStats[vv] = tmpStats
+				rSpan.Finish()
 				continue
 			}
 
@@ -552,7 +551,6 @@ func (s *state) MainRsync(pSpan opentracing.Span) {
 			rSpan.SetTag("error", true)
 			rSpan.LogKV("event", "rsync failure", "message", err)
 			log.Errorf("Error when processing %v (for %v): %v. Will add to rsync.", path, rsync, err)
-			log.Error(err)
 			MetricRsyncErrors.With(
 				prometheus.Labels{
 					"address": v,
@@ -934,15 +932,9 @@ func main() {
 	log.Infof("Validator started")
 
 	if *Tracer {
-		cfg := jcfg.Configuration{
-			ServiceName: *TracerName,
-			Sampler: &jcfg.SamplerConfig{
-				Type:  jaeger.SamplerTypeConst,
-				Param: 1,
-			},
-			Reporter: &jcfg.ReporterConfig{
-				LogSpans: true,
-			},
+		cfg, err := jcfg.FromEnv()
+		if err != nil {
+			log.Fatal(err)
 		}
 		tracer, closer, err := cfg.NewTracer()
 		if err != nil {
