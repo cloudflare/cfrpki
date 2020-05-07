@@ -929,7 +929,7 @@ func main() {
 
 	lvl, _ := log.ParseLevel(*LogLevel)
 	log.SetLevel(lvl)
-	log.Infof("Validator started")
+	log.Info("Validator started")
 
 	if *Tracer {
 		cfg, err := jcfg.FromEnv()
@@ -1031,12 +1031,22 @@ func main() {
 	} else if *Mode != "oneoff" {
 		log.Fatalf("Mode %v is not specified. Choose either server or oneoff", *Mode)
 	}
+	tracer := opentracing.GlobalTracer()
 
+	var spanActive bool
+	var pSpan opentracing.Span
+	var iterationsUntilStable int
 	for {
-		tracer := opentracing.GlobalTracer()
-		span := tracer.StartSpan("operation")
+		if !spanActive {
+			pSpan = tracer.StartSpan("multoperation")
+			spanActive = true
+			iterationsUntilStable = 0
+		}
+
+		span := tracer.StartSpan("operation", opentracing.ChildOf(pSpan.Context()))
 
 		s.Iteration++
+		iterationsUntilStable++
 		span.SetTag("iteration", s.Iteration)
 		s.FailoverRsync = make([]string, 0)
 		s.Fetcher.PathAvailable = make([]string, 0)
@@ -1044,10 +1054,12 @@ func main() {
 			t1 := time.Now().UTC()
 			// RRDP
 			if *RRDPFile != "" {
+				log.Infof("LOADING RRDP FILE")
 				s.LoadRRDP(*RRDPFile)
 			}
 			s.MainRRDP(span)
 			if *RRDPFile != "" {
+				log.Infof("SAVING RRDP FILE")
 				s.SaveRRDP(*RRDPFile)
 			}
 
@@ -1114,16 +1126,21 @@ func main() {
 
 		}
 
+		span.SetTag("stable", s.Stable)
+		span.Finish()
+
 		if *Mode == "oneoff" && s.Stable {
 			log.Info("Stable, terminating")
 			break
 		}
 
-		span.SetTag("stable", s.Stable)
-		span.Finish()
 		if s.Stable {
 			MetricLastStableValidation.Set(float64(s.LastComputed.UnixNano() / 1000000000))
 			MetricState.Set(float64(1))
+
+			pSpan.SetTag("iterations", iterationsUntilStable)
+			pSpan.Finish()
+			spanActive = false
 
 			log.Infof("Stable state. Revalidating in %v", mainRefresh)
 			<-time.After(mainRefresh)
