@@ -35,6 +35,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	// Debugging
+	"github.com/getsentry/sentry-go"
 	"github.com/opentracing/opentracing-go"
 	jcfg "github.com/uber/jaeger-client-go/config"
 	"net/http/pprof"
@@ -88,8 +89,9 @@ var (
 	Validity = flag.String("output.sign.validity", "1h", "Validity")
 
 	// Debugging options
-	Pprof  = flag.Bool("pprof", false, "Enable pprof endpoint")
-	Tracer = flag.Bool("tracer", false, "Enable tracer")
+	Pprof     = flag.Bool("pprof", false, "Enable pprof endpoint")
+	Tracer    = flag.Bool("tracer", false, "Enable tracer")
+	SentryDSN = flag.String("sentry.dsn", "", "Send errors to Sentry")
 
 	Version = flag.Bool("version", false, "Print version")
 
@@ -643,10 +645,19 @@ func (s *state) MainValidation(pSpan opentracing.Span) {
 
 		validator := pki.NewValidator()
 
-		manager[i] = pki.NewSimpleManager()
+		sm := pki.NewSimpleManager()
+		manager[i] = sm
+		manager[i].ReportErrors = true
 		manager[i].Validator = validator
 		manager[i].FileSeeker = s.Fetcher
 		manager[i].Log = s
+
+		go func(sm *pki.SimpleManager) {
+			for msg := range sm.Errors {
+				log.Warn(msg)
+			}
+			log.Warn("Closed errors")
+		}(sm)
 
 		manager[i].AddInitial([]*pki.PKIFile{tal})
 		s.CountExplore = manager[i].Explore(!s.UseManifest, false)
@@ -685,6 +696,7 @@ func (s *state) MainValidation(pSpan opentracing.Span) {
 				count++
 			}
 		}
+		sm.Close()
 		tSpan.LogKV("count-valid", count, "count-total", s.CountExplore)
 		tSpan.Finish()
 	}
@@ -931,6 +943,21 @@ func main() {
 
 	lvl, _ := log.ParseLevel(*LogLevel)
 	log.SetLevel(lvl)
+
+	sentryDsn := *SentryDSN
+	if sentryDsn == "" {
+		sentryDsn = os.Getenv("SENTRY_DSN")
+	}
+	if sentryDsn != "" {
+		err := sentry.Init(sentry.ClientOptions{
+			Dsn: sentryDsn,
+		})
+		if err != nil {
+			log.Fatalf("failed initializing sentry: %s", err)
+		}
+		defer sentry.Flush(2 * time.Second)
+	}
+
 	log.Info("Validator started")
 
 	if *Tracer {
@@ -1056,12 +1083,10 @@ func main() {
 			t1 := time.Now().UTC()
 			// RRDP
 			if *RRDPFile != "" {
-				log.Infof("LOADING RRDP FILE")
 				s.LoadRRDP(*RRDPFile)
 			}
 			s.MainRRDP(span)
 			if *RRDPFile != "" {
-				log.Infof("SAVING RRDP FILE")
 				s.SaveRRDP(*RRDPFile)
 			}
 
