@@ -405,8 +405,6 @@ func (v *Validator) AddCert(cert *librpki.RPKI_Certificate, trust bool) (bool, [
 }
 
 func (v *Validator) ValidateCertificate(cert *librpki.RPKI_Certificate, trust bool) error {
-	ski := cert.Certificate.SubjectKeyId
-
 	// Check time validity
 	err := cert.ValidateTime(v.Time)
 	if err != nil {
@@ -704,13 +702,13 @@ func (sm *SimpleManager) ExploreAdd(file *PKIFile, data *SeekFile, addInvalidChi
 	valid, subFiles, res, err := sm.Validator.AddResource(file, data.Data)
 	if err != nil {
 		if sm.Log != nil {
-			sm.Log.Errorf("Error adding Resource %v: %v", file.Path, err)
+			//sm.Log.Errorf("Error adding Resource %v: %v", file.Path, err)
 			sm.reportError(err)
 		}
 	}
 	if !valid && err == nil {
 		if sm.Log != nil {
-			sm.Log.Warnf("Resource %v is invalid: %v", file.Path, err)
+			//sm.Log.Warnf("Resource %v is invalid: %v", file.Path, err)
 			sm.reportError(err)
 		}
 	}
@@ -737,7 +735,7 @@ func (sm *SimpleManager) Explore(notMFT bool, addInvalidChilds bool) int {
 		file, hasMore, err = sm.GetNextExplore()
 		if err != nil {
 			if sm.Log != nil {
-				sm.Log.Errorf("Error getting file: %v", err)
+				//sm.Log.Errorf("Error getting file: %v", err)
 				sm.reportError(err)
 			}
 		} else {
@@ -748,7 +746,7 @@ func (sm *SimpleManager) Explore(notMFT bool, addInvalidChilds bool) int {
 
 			if err != nil {
 				if sm.Log != nil {
-					sm.Log.Errorf("Error exploring file: %v", err)
+					//sm.Log.Errorf("Error exploring file: %v", err)
 					sm.reportError(err)
 				}
 			} else if data != nil {
@@ -756,7 +754,7 @@ func (sm *SimpleManager) Explore(notMFT bool, addInvalidChilds bool) int {
 				hasMore = sm.HasMore()
 			} else {
 				if sm.Log != nil {
-					sm.Log.Debugf("GetNextFile returned nothing")
+					//sm.Log.Debugf("GetNextFile returned nothing")
 					sm.reportError(err)
 				}
 			}
@@ -765,7 +763,7 @@ func (sm *SimpleManager) Explore(notMFT bool, addInvalidChilds bool) int {
 			sm.Explored[file.Repo] = true
 			if err != nil {
 				if sm.Log != nil {
-					sm.Log.Errorf("Error exploring repository: %v", err)
+					//sm.Log.Errorf("Error exploring repository: %v", err)
 					sm.reportError(err)
 				}
 			}

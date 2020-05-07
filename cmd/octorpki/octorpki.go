@@ -653,10 +653,12 @@ func (s *state) MainValidation(pSpan opentracing.Span) {
 		manager[i].Log = s
 
 		go func(sm *pki.SimpleManager) {
-			for msg := range sm.Errors {
-				log.Warn(msg)
+			for err := range sm.Errors {
+				log.Error(err)
+				sentry.CaptureException(err)
 			}
-			log.Warn("Closed errors")
+
+			//log.Warn("Closed errors")
 		}(sm)
 
 		manager[i].AddInitial([]*pki.PKIFile{tal})

@@ -3,6 +3,7 @@ package pki
 import (
 	"fmt"
 	"github.com/cloudflare/cfrpki/validator/lib"
+	"runtime"
 	"strings"
 )
 
@@ -12,6 +13,9 @@ const (
 	ERROR_CERTIFICATE_REVOCATION
 	ERROR_CERTIFICATE_RESOURCE
 )
+
+type stack []uintptr
+type Frame uintptr
 
 type CertificateError struct {
 	EType int
@@ -24,6 +28,19 @@ type CertificateError struct {
 
 	IPs  []librpki.IPCertificateInformation
 	ASNs []librpki.ASNCertificateInformation
+
+	Stack *stack
+}
+
+// This function returns the Stacktrace of the error.
+// The naming scheme corresponds to what Sentry fetches
+// https://github.com/getsentry/sentry-go/blob/master/stacktrace.go#L49
+func (e *CertificateError) StackTrace() []Frame {
+	f := make([]Frame, len(*e.Stack))
+	for i := 0; i < len(f); i++ {
+		f[i] = Frame((*e.Stack)[i])
+	}
+	return f
 }
 
 func (e *CertificateError) Error() string {
@@ -62,12 +79,21 @@ func (e *CertificateError) Error() string {
 
 }
 
+func callers() *stack {
+	const depth = 32
+	var pcs [depth]uintptr
+	n := runtime.Callers(3, pcs[:])
+	var st stack = pcs[0:n]
+	return &st
+}
+
 func NewCertificateErrorValidity(cert *librpki.RPKI_Certificate, err error) *CertificateError {
 	return &CertificateError{
 		EType:       ERROR_CERTIFICATE_VALIDITY,
 		Certificate: cert,
 		InnerErr:    err,
 		Message:     "expiration issue",
+		Stack:       callers(),
 	}
 }
 
@@ -78,6 +104,7 @@ func NewCertificateErrorParent(cert, parent *librpki.RPKI_Certificate, err error
 		Parent:      parent,
 		InnerErr:    err,
 		Message:     "parent issue",
+		Stack:       callers(),
 	}
 }
 
@@ -86,6 +113,7 @@ func NewCertificateErrorRevocation(cert *librpki.RPKI_Certificate) *CertificateE
 		EType:       ERROR_CERTIFICATE_REVOCATION,
 		Certificate: cert,
 		Message:     "revocation by issuer",
+		Stack:       callers(),
 	}
 }
 
@@ -96,5 +124,6 @@ func NewCertificateErrorResource(cert *librpki.RPKI_Certificate, ips []librpki.I
 		Message:     "resource issue",
 		IPs:         ips,
 		ASNs:        asns,
+		Stack:       callers(),
 	}
 }
