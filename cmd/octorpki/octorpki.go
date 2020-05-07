@@ -416,6 +416,7 @@ func (s *state) MainRRDP(pSpan opentracing.Span) {
 			)
 			rSpan.SetTag("rrdp", vv)
 			rSpan.SetTag("rsync", rsync)
+			rSpan.SetTag("type", "rrdp")
 			log.Infof("RRDP sync %v", vv)
 
 			rrdpid := vv
@@ -528,7 +529,8 @@ func (s *state) MainRsync(pSpan opentracing.Span) {
 			"sync",
 			opentracing.ChildOf(span.Context()),
 		)
-		rSpan.SetTag("url", v)
+		rSpan.SetTag("rsync", v)
+		rSpan.SetTag("type", "rsync")
 
 		log.Infof("Rsync sync %v", v)
 		downloadPath, err := syncpki.GetDownloadPath(v, true)
