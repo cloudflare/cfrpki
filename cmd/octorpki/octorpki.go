@@ -655,7 +655,13 @@ func (s *state) MainValidation(pSpan opentracing.Span) {
 		go func(sm *pki.SimpleManager) {
 			for err := range sm.Errors {
 				log.Error(err)
-				sentry.CaptureException(err)
+				sentry.WithScope(func(scope *sentry.Scope) {
+					if errC, ok := err.(interface{ SetSentryScope(*sentry.Scope) }); ok {
+						errC.SetSentryScope(scope)
+					}
+					scope.SetTag("TrustAnchor", tal.Path)
+					sentry.CaptureException(err)
+				})
 			}
 
 			//log.Warn("Closed errors")

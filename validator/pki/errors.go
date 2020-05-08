@@ -1,8 +1,10 @@
 package pki
 
 import (
+	"encoding/hex"
 	"fmt"
 	"github.com/cloudflare/cfrpki/validator/lib"
+	"github.com/getsentry/sentry-go"
 	"runtime"
 	"strings"
 )
@@ -17,6 +19,15 @@ const (
 type stack []uintptr
 type Frame uintptr
 
+var (
+	ErrorTypeToName = map[int]string{
+		ERROR_CERTIFICATE_VALIDITY:   "validity",
+		ERROR_CERTIFICATE_PARENT:     "parent",
+		ERROR_CERTIFICATE_REVOCATION: "revocation",
+		ERROR_CERTIFICATE_RESOURCE:   "resource",
+	}
+)
+
 type CertificateError struct {
 	EType int
 
@@ -30,17 +41,37 @@ type CertificateError struct {
 	ASNs []librpki.ASNCertificateInformation
 
 	Stack *stack
+
+	File     *PKIFile
+	SeekFile *SeekFile
+}
+
+func callers() *stack {
+	const depth = 32
+	var pcs [depth]uintptr
+	n := runtime.Callers(3, pcs[:])
+	var st stack = pcs[0:n]
+	return &st
 }
 
 // This function returns the Stacktrace of the error.
 // The naming scheme corresponds to what Sentry fetches
 // https://github.com/getsentry/sentry-go/blob/master/stacktrace.go#L49
-func (e *CertificateError) StackTrace() []Frame {
-	f := make([]Frame, len(*e.Stack))
+func StackTrace(s *stack) []Frame {
+	f := make([]Frame, len(*s))
 	for i := 0; i < len(f); i++ {
-		f[i] = Frame((*e.Stack)[i])
+		f[i] = Frame((*s)[i])
 	}
 	return f
+}
+
+func (e *CertificateError) StackTrace() []Frame {
+	return StackTrace(e.Stack)
+}
+
+func (e *CertificateError) AddFileErrorInfo(file *PKIFile, seek *SeekFile) {
+	e.File = file
+	e.SeekFile = seek
 }
 
 func (e *CertificateError) Error() string {
@@ -76,15 +107,44 @@ func (e *CertificateError) Error() string {
 	}
 
 	return fmt.Sprintf("%s %s%v%s%s", e.Message, certinfo, err, ips, asns)
-
 }
 
-func callers() *stack {
-	const depth = 32
-	var pcs [depth]uintptr
-	n := runtime.Callers(3, pcs[:])
-	var st stack = pcs[0:n]
-	return &st
+func (e *CertificateError) SetSentryScope(scope *sentry.Scope) {
+	scope.SetTag("Type", ErrorTypeToName[e.EType])
+
+	if e.Certificate != nil {
+		ski := e.Certificate.Certificate.SubjectKeyId
+		aki := e.Certificate.Certificate.AuthorityKeyId
+		scope.SetTag("Certificate.SubjectKeyId", hex.EncodeToString(ski))
+		scope.SetTag("Certificate.AuthorityKeyId", hex.EncodeToString(aki))
+
+		scope.SetExtra("Certificate.NotBefore", e.Certificate.Certificate.NotBefore)
+		scope.SetExtra("Certificate.NotAfter", e.Certificate.Certificate.NotAfter)
+		scope.SetTag("Certificate.SerialNumber", e.Certificate.Certificate.SerialNumber.String())
+
+		// Might be worth to convert into proper strings later
+		scope.SetExtra("Certificate.SIAs", e.Certificate.SubjectInformationAccess)
+		scope.SetExtra("Certificate.IP", e.Certificate.IPAddresses)
+		scope.SetExtra("Certificate.ASN", e.Certificate.ASNums)
+		scope.SetExtra("Certificate.ASNRDI", e.Certificate.ASNRDI)
+	}
+	if e.File != nil {
+		scope.SetTag("File.Repository", e.File.Repo)
+		scope.SetTag("File.Path", e.File.Path)
+		scope.SetTag("File.Type", TypeToName[e.File.Type])
+		scope.SetExtra("File.Trust", e.File.Trust)
+	}
+	if e.SeekFile != nil {
+		// disabling as most of certificates are above the 200KB Sentry limit
+		//scope.SetExtra("File.Data", e.SeekFile.Data)
+		scope.SetExtra("File.Length", len(e.SeekFile.Data))
+	}
+	if len(e.IPs) > 0 {
+		scope.SetExtra("IPs", e.IPs)
+	}
+	if len(e.ASNs) > 0 {
+		scope.SetExtra("ASNs", e.ASNs)
+	}
 }
 
 func NewCertificateErrorValidity(cert *librpki.RPKI_Certificate, err error) *CertificateError {

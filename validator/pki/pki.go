@@ -26,6 +26,18 @@ const (
 var (
 	CARepository = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 5}
 	Manifest     = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 10}
+
+	TypeToName = map[int]string{
+		TYPE_UNKNOWN: "unknown",
+		TYPE_CER:     "certificate",
+		TYPE_MFT:     "manifest",
+		TYPE_ROA:     "roa",
+		TYPE_CRL:     "crl",
+		TYPE_ROACER:  "roa-ee",
+		TYPE_MFTCER:  "manifest-ee",
+		TYPE_CAREPO:  "ca-repo",
+		TYPE_TAL:     "tal",
+	}
 )
 
 type Resource struct {
@@ -96,6 +108,12 @@ func (sm *SimpleManager) reportError(err error) {
 	if sm.ReportErrors {
 		sm.Errors <- err
 	}
+}
+func (sm *SimpleManager) reportErrorFile(err error, file *PKIFile, seek *SeekFile) {
+	if errC, ok := err.(interface{ AddFileErrorInfo(*PKIFile, *SeekFile) }); file != nil && ok {
+		errC.AddFileErrorInfo(file, seek)
+	}
+	sm.reportError(err)
 }
 
 func (sm *SimpleManager) PutFiles(fileList []*PKIFile) {
@@ -703,13 +721,13 @@ func (sm *SimpleManager) ExploreAdd(file *PKIFile, data *SeekFile, addInvalidChi
 	if err != nil {
 		if sm.Log != nil {
 			//sm.Log.Errorf("Error adding Resource %v: %v", file.Path, err)
-			sm.reportError(err)
+			sm.reportErrorFile(err, file, data)
 		}
 	}
 	if !valid && err == nil {
 		if sm.Log != nil {
 			//sm.Log.Warnf("Resource %v is invalid: %v", file.Path, err)
-			sm.reportError(err)
+			sm.reportErrorFile(err, file, data)
 		}
 	}
 	for _, subFile := range subFiles {
