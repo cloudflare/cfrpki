@@ -152,6 +152,9 @@ func (sm *SimpleManager) GetNextFile(curExplore *PKIFile) (*SeekFile, error) {
 
 	if sm.FileSeeker != nil {
 		data, err := sm.FileSeeker.GetFile(curExplore)
+		if err != nil {
+			err = NewFileError(err)
+		}
 		return data, err
 	}
 	return nil, errors.New("No interface to fetch file, check FileSeeker")
@@ -768,7 +771,7 @@ func (sm *SimpleManager) Explore(notMFT bool, addInvalidChilds bool) int {
 			data, err := sm.GetNextFile(file)
 
 			if err != nil {
-				sm.reportError(err)
+				sm.reportErrorFile(err, file, data)
 			} else if data != nil {
 				sm.ExploreAdd(file, data, addInvalidChilds)
 				hasMore = sm.HasMore()
@@ -781,7 +784,7 @@ func (sm *SimpleManager) Explore(notMFT bool, addInvalidChilds bool) int {
 			err = sm.GetNextRepository(file, sm.ExploreAdd)
 			sm.Explored[file.Repo] = true
 			if err != nil {
-				sm.reportError(err)
+				sm.reportErrorFile(err, file, nil)
 			}
 		}
 		hasMore = sm.HasMore()

@@ -10,11 +10,13 @@ import (
 )
 
 const (
-	ERROR_CERTIFICATE_VALIDITY = iota
+	ERROR_CERTIFICATE_UNKNOWN = iota
+	ERROR_CERTIFICATE_EXPIRATION
 	ERROR_CERTIFICATE_PARENT
 	ERROR_CERTIFICATE_REVOCATION
 	ERROR_CERTIFICATE_RESOURCE
 	ERROR_CERTIFICATE_CONFLICT
+	ERROR_FILE
 )
 
 type stack []uintptr
@@ -22,11 +24,13 @@ type Frame uintptr
 
 var (
 	ErrorTypeToName = map[int]string{
-		ERROR_CERTIFICATE_VALIDITY:   "validity",
+		ERROR_CERTIFICATE_UNKNOWN:    "unknown",
+		ERROR_CERTIFICATE_EXPIRATION: "expiration",
 		ERROR_CERTIFICATE_PARENT:     "parent",
 		ERROR_CERTIFICATE_REVOCATION: "revocation",
 		ERROR_CERTIFICATE_RESOURCE:   "resource",
 		ERROR_CERTIFICATE_CONFLICT:   "conflict",
+		ERROR_FILE:                   "file",
 	}
 )
 
@@ -131,7 +135,13 @@ func (e *CertificateError) SetSentryScope(scope *sentry.Scope) {
 		scope.SetExtra("Certificate.ASNRDI", e.Certificate.ASNRDI)
 	}
 	if e.File != nil {
-		scope.SetTag("File.Repository", e.File.Repo)
+		if e.File.Repo != "" {
+			scope.SetTag("File.Repository", e.File.Repo)
+		} else {
+			if e.File.Parent != nil && e.File.Parent.Repo != "" {
+				scope.SetTag("File.Repository", e.File.Parent.Repo)
+			}
+		}
 		scope.SetTag("File.Path", e.File.Path)
 		scope.SetTag("File.Type", TypeToName[e.File.Type])
 		scope.SetExtra("File.Trust", e.File.Trust)
@@ -151,7 +161,7 @@ func (e *CertificateError) SetSentryScope(scope *sentry.Scope) {
 
 func NewCertificateErrorValidity(cert *librpki.RPKI_Certificate, err error) *CertificateError {
 	return &CertificateError{
-		EType:       ERROR_CERTIFICATE_VALIDITY,
+		EType:       ERROR_CERTIFICATE_EXPIRATION,
 		Certificate: cert,
 		InnerErr:    err,
 		Message:     "expiration issue",
@@ -199,7 +209,31 @@ func NewCertificateErrorConflict(cert *librpki.RPKI_Certificate) *CertificateErr
 	}
 }
 
-type ResourceWrapError struct {
+type FileError CertificateError
+
+func (e *FileError) Error() string {
+	return (*CertificateError)(e).Error()
+}
+func (e *FileError) StackTrace() []Frame {
+	return (*CertificateError)(e).StackTrace()
+}
+func (e *FileError) SetSentryScope(scope *sentry.Scope) {
+	(*CertificateError)(e).SetSentryScope(scope)
+}
+func (e *FileError) AddFileErrorInfo(file *PKIFile, seek *SeekFile) {
+	(*CertificateError)(e).AddFileErrorInfo(file, seek)
+}
+
+func NewFileError(err error) *FileError {
+	return &FileError{
+		EType:    ERROR_FILE,
+		Message:  "file error",
+		InnerErr: err,
+		Stack:    callers(),
+	}
+}
+
+type ResourceError struct {
 	EType         int
 	InnerValidity bool
 	InnerErr      error
@@ -213,7 +247,7 @@ type ResourceWrapError struct {
 	SeekFile *SeekFile
 }
 
-func (e *ResourceWrapError) StackTrace() []Frame {
+func (e *ResourceError) StackTrace() []Frame {
 	if e.InnerErr != nil {
 		if errC, ok := e.InnerErr.(interface{ StackTrace() []Frame }); ok {
 			return errC.StackTrace()
@@ -222,20 +256,25 @@ func (e *ResourceWrapError) StackTrace() []Frame {
 	return StackTrace(e.Stack)
 }
 
-func (e *ResourceWrapError) Error() string {
-	return fmt.Sprintf("Wrapper error for %v", e.InnerErr.Error())
+func (e *ResourceError) Error() string {
+	return e.InnerErr.Error()
 }
 
-func (e *ResourceWrapError) SetSentryScope(scope *sentry.Scope) {
+func (e *ResourceError) SetSentryScope(scope *sentry.Scope) {
 	if e.InnerErr != nil {
 		if errC, ok := e.InnerErr.(interface{ SetSentryScope(scope *sentry.Scope) }); ok {
 			errC.SetSentryScope(scope)
 		}
 	}
-
-	scope.SetTag("Type", "TBD")
+	scope.SetTag("Type", ErrorTypeToName[e.EType])
 	if e.File != nil {
-		scope.SetTag("File.Repository", e.File.Repo)
+		if e.File.Repo != "" {
+			scope.SetTag("File.Repository", e.File.Repo)
+		} else {
+			if e.File.Parent != nil && e.File.Parent.Repo != "" {
+				scope.SetTag("File.Repository", e.File.Parent.Repo)
+			}
+		}
 		scope.SetTag("File.Path", e.File.Path)
 		scope.SetTag("File.Type", TypeToName[e.File.Type])
 		scope.SetExtra("File.Trust", e.File.Trust)
@@ -247,15 +286,23 @@ func (e *ResourceWrapError) SetSentryScope(scope *sentry.Scope) {
 	}
 }
 
-func (e *ResourceWrapError) AddFileErrorInfo(file *PKIFile, seek *SeekFile) {
+func (e *ResourceError) AddFileErrorInfo(file *PKIFile, seek *SeekFile) {
 	e.File = file
 	e.SeekFile = seek
 }
 
-func NewResourceErrorWrap(wrapper interface{}, err error) *ResourceWrapError {
-	return &ResourceWrapError{
+func NewResourceErrorWrap(wrapper interface{}, err error) *ResourceError {
+	rw := &ResourceError{
+		EType:    ERROR_CERTIFICATE_UNKNOWN,
 		InnerErr: err,
 		Wrapper:  wrapper,
 		Stack:    callers(),
 	}
+	if err != nil {
+		if errC, ok := err.(*CertificateError); ok {
+			rw.EType = errC.EType
+		}
+	}
+
+	return rw
 }

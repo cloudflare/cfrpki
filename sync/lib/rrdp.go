@@ -22,9 +22,8 @@ type HTTPFetcher struct {
 
 func (f *HTTPFetcher) GetXML(url string) (string, error) {
 	req, err := http.NewRequest("GET", url, nil)
-
 	if err != nil {
-		return "", errors.New(fmt.Sprintf("Fetching error: %v", err))
+		return "", NewRRDPErrorFetch(req, err)
 	}
 
 	// Set recommended header
@@ -32,18 +31,19 @@ func (f *HTTPFetcher) GetXML(url string) (string, error) {
 
 	res, err := f.Client.Do(req)
 	if err != nil {
-		return "", errors.New(fmt.Sprintf("Fetching error: %v", err))
+		return "", NewRRDPErrorFetch(req, err)
 	}
 	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
-		return "", errors.New(fmt.Sprintf("Fetching status error: %v", res.StatusCode))
+		return "", NewRRDPErrorFetch(req, errors.New(fmt.Sprintf("status is %d", res.StatusCode)))
 	}
 
 	data, err := ioutil.ReadAll(res.Body)
 	if err != nil {
 		return "", err
 	}
+	res.Body.Close()
 	return string(data), nil
 }
 

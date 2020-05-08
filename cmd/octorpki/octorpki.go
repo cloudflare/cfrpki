@@ -69,6 +69,7 @@ var (
 	RRDPFile = flag.String("rrdp.file", "cache/rrdp.json", "Save RRDP state")
 	RRDPMode = flag.Int("rrdp.mode", RRDP_MATCH_RSYNC, fmt.Sprintf("RRDP security mode (%v = no check, %v = match rsync domain, %v = match path)",
 		RRDP_NO_MATCH, RRDP_MATCH_RSYNC, RRDP_MATCH_STRICT))
+	RRDPFailover = flag.Bool("rrdp.failover", true, "Failover to rsync when RRDP fails")
 
 	Mode       = flag.String("mode", "server", "Select output mode (server/oneoff)")
 	WaitStable = flag.Bool("output.wait", true, "Wait until stable state to create the file (returns 503 when unstable on HTTP)")
@@ -457,7 +458,17 @@ func (s *state) MainRRDP(pSpan opentracing.Span) {
 				rSpan.SetTag("error", true)
 				rSpan.LogKV("event", "rrdp failure", "type", "failover to rsync", "message", err)
 				log.Errorf("Error when processing %v (for %v): %v. Will add to rsync.", path, rsync, err)
-				sentry.CaptureException(err)
+				sentry.WithScope(func(scope *sentry.Scope) {
+					if errC, ok := err.(interface{ SetURL(string, string) }); ok {
+						errC.SetURL(vv, rsync)
+					}
+					if errC, ok := err.(interface{ SetSentryScope(*sentry.Scope) }); ok {
+						errC.SetSentryScope(scope)
+					}
+					scope.SetTag("Rsync", rsync)
+					scope.SetTag("RRDP", vv)
+					sentry.CaptureException(err)
+				})
 
 				s.FailoverRsync = append(s.FailoverRsync, rsync)
 
@@ -552,7 +563,16 @@ func (s *state) MainRsync(pSpan opentracing.Span) {
 			rSpan.SetTag("error", true)
 			rSpan.LogKV("event", "rsync failure", "message", err)
 			log.Errorf("Error when processing %v (for %v): %v. Will add to rsync.", path, rsync, err)
-			sentry.CaptureException(err)
+			sentry.WithScope(func(scope *sentry.Scope) {
+				if errC, ok := err.(interface{ SetRsync(string) }); ok {
+					errC.SetRsync(v)
+				}
+				if errC, ok := err.(interface{ SetSentryScope(*sentry.Scope) }); ok {
+					errC.SetSentryScope(scope)
+				}
+				scope.SetTag("Rsync", v)
+				sentry.CaptureException(err)
+			})
 
 			MetricRsyncErrors.With(
 				prometheus.Labels{
