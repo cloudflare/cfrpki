@@ -14,6 +14,7 @@ const (
 	ERROR_CERTIFICATE_PARENT
 	ERROR_CERTIFICATE_REVOCATION
 	ERROR_CERTIFICATE_RESOURCE
+	ERROR_CERTIFICATE_CONFLICT
 )
 
 type stack []uintptr
@@ -25,6 +26,7 @@ var (
 		ERROR_CERTIFICATE_PARENT:     "parent",
 		ERROR_CERTIFICATE_REVOCATION: "revocation",
 		ERROR_CERTIFICATE_RESOURCE:   "resource",
+		ERROR_CERTIFICATE_CONFLICT:   "conflict",
 	}
 )
 
@@ -184,6 +186,15 @@ func NewCertificateErrorResource(cert *librpki.RPKI_Certificate, ips []librpki.I
 		Message:     "resource issue",
 		IPs:         ips,
 		ASNs:        asns,
+		Stack:       callers(),
+	}
+}
+
+func NewCertificateErrorConflict(cert *librpki.RPKI_Certificate) *CertificateError {
+	return &CertificateError{
+		EType:       ERROR_CERTIFICATE_CONFLICT,
+		Certificate: cert,
+		Message:     "certificate conflict",
 		Stack:       callers(),
 	}
 }

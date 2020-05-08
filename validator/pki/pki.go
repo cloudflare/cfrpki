@@ -4,7 +4,6 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/cloudflare/cfrpki/validator/lib"
@@ -390,7 +389,7 @@ func (v *Validator) AddCert(cert *librpki.RPKI_Certificate, trust bool) (bool, [
 
 	_, exists := v.Objects[ski]
 	if exists {
-		return false, nil, nil, errors.New(fmt.Sprintf("A certificate with Subject Key Id: %v already exists", hex.EncodeToString(cert.Certificate.SubjectKeyId)))
+		return false, nil, nil, NewCertificateErrorConflict(cert)
 	}
 
 	_, hasParentValid := v.ValidObjects[aki]
@@ -463,7 +462,7 @@ func (v *Validator) ValidateCertificate(cert *librpki.RPKI_Certificate, trust bo
 		upperCert, found := v.ValidObjects[string(key)]
 		if !found {
 			//return errors.New(fmt.Sprintf("One of the parents (%x) of %x is not valid", key, ski))
-			return NewCertificateErrorParent(cert, parentCert, errors.New(fmt.Sprintf("ancestor %x is not valid", key)))
+			return NewCertificateErrorParent(cert, parentCert, errors.New(fmt.Sprintf("ancestor %x is missing", key)))
 		}
 		chainCert, ok := upperCert.Resource.(*librpki.RPKI_Certificate)
 		if !ok {

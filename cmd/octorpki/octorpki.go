@@ -369,37 +369,32 @@ func (s *state) ReceiveRRDPFileCallback(main string, url string, path string, da
 	return nil
 }
 
-func (s *state) LoadRRDP(file string) {
+func (s *state) LoadRRDP(file string) error {
 	f, err := os.Open(file)
 	if err != nil {
-		log.Error(err)
-		return
+		return err
 	}
+	defer f.Close()
 
 	info := make(map[string]RRDPInfo)
 	dec := json.NewDecoder(f)
 	err = dec.Decode(&info)
 	if err != nil && err != io.EOF {
-		log.Error(err)
-	} else if err == nil {
-		s.RRDPInfo = info
+		return err
 	}
-	f.Close()
+	s.RRDPInfo = info
+	return nil
 }
 
-func (s *state) SaveRRDP(file string) {
+func (s *state) SaveRRDP(file string) error {
 	f, err := os.Create(file)
 	if err != nil {
-		log.Error(err)
-		return
+		return err
 	}
+	defer f.Close()
 
 	dec := json.NewEncoder(f)
-	err = dec.Encode(s.RRDPInfo)
-	if err != nil {
-		log.Error(err)
-	}
-	f.Close()
+	return dec.Encode(s.RRDPInfo)
 }
 
 func (s *state) MainRRDP(pSpan opentracing.Span) {
@@ -462,6 +457,8 @@ func (s *state) MainRRDP(pSpan opentracing.Span) {
 				rSpan.SetTag("error", true)
 				rSpan.LogKV("event", "rrdp failure", "type", "failover to rsync", "message", err)
 				log.Errorf("Error when processing %v (for %v): %v. Will add to rsync.", path, rsync, err)
+				sentry.CaptureException(err)
+
 				s.FailoverRsync = append(s.FailoverRsync, rsync)
 
 				MetricRRDPErrors.With(
@@ -555,6 +552,8 @@ func (s *state) MainRsync(pSpan opentracing.Span) {
 			rSpan.SetTag("error", true)
 			rSpan.LogKV("event", "rsync failure", "message", err)
 			log.Errorf("Error when processing %v (for %v): %v. Will add to rsync.", path, rsync, err)
+			sentry.CaptureException(err)
+
 			MetricRsyncErrors.With(
 				prometheus.Labels{
 					"address": v,
@@ -769,6 +768,7 @@ func (s *state) MainValidation(pSpan opentracing.Span) {
 		signdate, sign, err := roalist.Sign(s.Key)
 		if err != nil {
 			log.Error(err)
+			sentry.CaptureException(err)
 		}
 		roalist.Metadata.Signature = sign
 		roalist.Metadata.SignatureDate = signdate
@@ -1091,11 +1091,17 @@ func main() {
 			t1 := time.Now().UTC()
 			// RRDP
 			if *RRDPFile != "" {
-				s.LoadRRDP(*RRDPFile)
+				err = s.LoadRRDP(*RRDPFile)
+				if err != nil {
+					sentry.CaptureException(err)
+				}
 			}
 			s.MainRRDP(span)
 			if *RRDPFile != "" {
 				s.SaveRRDP(*RRDPFile)
+				if err != nil {
+					sentry.CaptureException(err)
+				}
 			}
 
 			t2 := time.Now().UTC()
