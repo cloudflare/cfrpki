@@ -536,6 +536,12 @@ func (v *Validator) AddROA(pkifile *PKIFile, roa *librpki.RPKI_ROA) (bool, *Reso
 	}
 	v.ROA[string(key)] = res_roa
 
+	if err != nil {
+		errRes := NewResourceErrorWrap(roa, err)
+		errRes.InnerValidity = valid
+		err = errRes
+	}
+
 	return valid, res_roa, err
 }
 
@@ -572,6 +578,12 @@ func (v *Validator) AddManifest(pkifile *PKIFile, mft *librpki.RPKI_Manifest) (b
 		v.ValidManifest[string(key)] = res_mft
 	}
 	v.Manifest[string(key)] = res_mft
+
+	if err != nil {
+		errRes := NewResourceErrorWrap(mft, err)
+		errRes.InnerValidity = valid
+		err = errRes
+	}
 
 	return valid, pathCert, res_mft, err
 }
@@ -724,10 +736,7 @@ func (sm *SimpleManager) ExploreAdd(file *PKIFile, data *SeekFile, addInvalidChi
 		}
 	}
 	if !valid && err == nil {
-		if sm.Log != nil {
-			//sm.Log.Warnf("Resource %v is invalid: %v", file.Path, err)
-			sm.reportErrorFile(err, file, data)
-		}
+		sm.reportErrorFile(err, file, data)
 	}
 	for _, subFile := range subFiles {
 		subFile.Parent = file
@@ -751,10 +760,7 @@ func (sm *SimpleManager) Explore(notMFT bool, addInvalidChilds bool) int {
 
 		file, hasMore, err = sm.GetNextExplore()
 		if err != nil {
-			if sm.Log != nil {
-				//sm.Log.Errorf("Error getting file: %v", err)
-				sm.reportError(err)
-			}
+			sm.reportError(err)
 		} else {
 			count++
 		}
@@ -762,27 +768,20 @@ func (sm *SimpleManager) Explore(notMFT bool, addInvalidChilds bool) int {
 			data, err := sm.GetNextFile(file)
 
 			if err != nil {
-				if sm.Log != nil {
-					//sm.Log.Errorf("Error exploring file: %v", err)
-					sm.reportError(err)
-				}
+				sm.reportError(err)
 			} else if data != nil {
 				sm.ExploreAdd(file, data, addInvalidChilds)
 				hasMore = sm.HasMore()
 			} else {
 				if sm.Log != nil {
-					//sm.Log.Debugf("GetNextFile returned nothing")
-					sm.reportError(err)
+					sm.Log.Debugf("GetNextFile returned nothing")
 				}
 			}
 		} else {
 			err = sm.GetNextRepository(file, sm.ExploreAdd)
 			sm.Explored[file.Repo] = true
 			if err != nil {
-				if sm.Log != nil {
-					//sm.Log.Errorf("Error exploring repository: %v", err)
-					sm.reportError(err)
-				}
+				sm.reportError(err)
 			}
 		}
 		hasMore = sm.HasMore()

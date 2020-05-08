@@ -198,3 +198,64 @@ func NewCertificateErrorConflict(cert *librpki.RPKI_Certificate) *CertificateErr
 		Stack:       callers(),
 	}
 }
+
+type ResourceWrapError struct {
+	EType         int
+	InnerValidity bool
+	InnerErr      error
+	Message       string
+
+	Wrapper interface{}
+
+	Stack *stack
+
+	File     *PKIFile
+	SeekFile *SeekFile
+}
+
+func (e *ResourceWrapError) StackTrace() []Frame {
+	if e.InnerErr != nil {
+		if errC, ok := e.InnerErr.(interface{ StackTrace() []Frame }); ok {
+			return errC.StackTrace()
+		}
+	}
+	return StackTrace(e.Stack)
+}
+
+func (e *ResourceWrapError) Error() string {
+	return fmt.Sprintf("Wrapper error for %v", e.InnerErr.Error())
+}
+
+func (e *ResourceWrapError) SetSentryScope(scope *sentry.Scope) {
+	if e.InnerErr != nil {
+		if errC, ok := e.InnerErr.(interface{ SetSentryScope(scope *sentry.Scope) }); ok {
+			errC.SetSentryScope(scope)
+		}
+	}
+
+	scope.SetTag("Type", "TBD")
+	if e.File != nil {
+		scope.SetTag("File.Repository", e.File.Repo)
+		scope.SetTag("File.Path", e.File.Path)
+		scope.SetTag("File.Type", TypeToName[e.File.Type])
+		scope.SetExtra("File.Trust", e.File.Trust)
+	}
+	if e.SeekFile != nil {
+		// disabling as most of certificates are above the 200KB Sentry limit
+		//scope.SetExtra("File.Data", e.SeekFile.Data)
+		scope.SetExtra("File.Length", len(e.SeekFile.Data))
+	}
+}
+
+func (e *ResourceWrapError) AddFileErrorInfo(file *PKIFile, seek *SeekFile) {
+	e.File = file
+	e.SeekFile = seek
+}
+
+func NewResourceErrorWrap(wrapper interface{}, err error) *ResourceWrapError {
+	return &ResourceWrapError{
+		InnerErr: err,
+		Wrapper:  wrapper,
+		Stack:    callers(),
+	}
+}
