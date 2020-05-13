@@ -84,6 +84,7 @@ func (e *RRDPError) SetSentryScope(scope *sentry.Scope) {
 		scope.SetRequest(e.Request)
 	}
 }
+
 func (e *RRDPError) SetURL(rrdp, rsync string) {
 	e.URL = rrdp
 	e.Rsync = rsync

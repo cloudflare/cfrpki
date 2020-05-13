@@ -245,7 +245,8 @@ type state struct {
 	FinalRsyncFetch map[string]bool
 	FinalRRDPFetch  map[string][]string
 
-	RRDPInfo map[string]RRDPInfo
+	RRDPInfo     map[string]RRDPInfo
+	RRDPFailover bool
 
 	ROAList *prefixfile.ROAList
 
@@ -456,7 +457,7 @@ func (s *state) MainRRDP(pSpan opentracing.Span) {
 			t2 := time.Now().UTC()
 			if err != nil {
 				rSpan.SetTag("error", true)
-				rSpan.LogKV("event", "rrdp failure", "type", "failover to rsync", "message", err)
+
 				log.Errorf("Error when processing %v (for %v): %v. Will add to rsync.", path, rsync, err)
 				sentry.WithScope(func(scope *sentry.Scope) {
 					if errC, ok := err.(interface{ SetURL(string, string) }); ok {
@@ -465,12 +466,18 @@ func (s *state) MainRRDP(pSpan opentracing.Span) {
 					if errC, ok := err.(interface{ SetSentryScope(*sentry.Scope) }); ok {
 						errC.SetSentryScope(scope)
 					}
+					rrdp.SetSentryScope(scope)
 					scope.SetTag("Rsync", rsync)
 					scope.SetTag("RRDP", vv)
 					sentry.CaptureException(err)
 				})
 
-				s.FailoverRsync = append(s.FailoverRsync, rsync)
+				if s.RRDPFailover {
+					rSpan.LogKV("event", "rrdp failure", "type", "failover to rsync", "message", err)
+					s.FailoverRsync = append(s.FailoverRsync, rsync)
+				} else {
+					rSpan.LogKV("event", "rrdp failure", "type", "skipping failover to rsync", "message", err)
+				}
 
 				MetricRRDPErrors.With(
 					prometheus.Labels{
@@ -486,6 +493,15 @@ func (s *state) MainRRDP(pSpan opentracing.Span) {
 				rSpan.Finish()
 				continue
 			}
+
+			rSpan.LogKV("event", "rrdp", "type", "success", "message", "rrdp successfully fetched")
+			sentry.WithScope(func(scope *sentry.Scope) {
+				scope.SetLevel(sentry.LevelInfo)
+				scope.SetTag("Rsync", rsync)
+				scope.SetTag("RRDP", vv)
+				rrdp.SetSentryScope(scope)
+				sentry.CaptureMessage("fetched rrdp successfully")
+			})
 
 			rSpan.Finish()
 			s.Fetcher.PathAvailable = append(s.Fetcher.PathAvailable, rsync)
@@ -584,6 +600,13 @@ func (s *state) MainRsync(pSpan opentracing.Span) {
 			tmpStats.LastFetchError = int(time.Now().UTC().UnixNano() / 1000000000)
 			tmpStats.LastError = fmt.Sprint(err)
 			s.RsyncStats[v] = tmpStats
+		} else {
+			rSpan.LogKV("event", "rsync", "type", "success", "message", "rsync successfully fetched")
+			sentry.WithScope(func(scope *sentry.Scope) {
+				scope.SetLevel(sentry.LevelInfo)
+				scope.SetTag("Rsync", v)
+				sentry.CaptureMessage("fetched rsync successfully")
+			})
 		}
 		cancelRsync()
 		var countFiles int
@@ -673,6 +696,9 @@ func (s *state) MainValidation(pSpan opentracing.Span) {
 
 		go func(sm *pki.SimpleManager) {
 			for err := range sm.Errors {
+				tSpan.SetTag("error", true)
+				tSpan.LogKV("event", "resource issue", "type", "skipping resource", "message", err)
+				//log.Errorf("Error when processing %v (for %v): %v.", path, rsync, err)
 				log.Error(err)
 				sentry.WithScope(func(scope *sentry.Scope) {
 					if errC, ok := err.(interface{ SetSentryScope(*sentry.Scope) }); ok {
@@ -1034,8 +1060,9 @@ func main() {
 
 		EnableCache: *CacheHeader,
 
-		Mode:     *Mode,
-		RRDPMode: *RRDPMode,
+		Mode:         *Mode,
+		RRDPMode:     *RRDPMode,
+		RRDPFailover: *RRDPFailover,
 
 		RsyncFetch:      make(map[string]time.Time),
 		RRDPFetch:       make(map[string][]string),

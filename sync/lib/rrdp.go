@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"github.com/getsentry/sentry-go"
 	"io/ioutil"
 	"net/http"
 	"strings"
@@ -143,6 +144,15 @@ type RRDPSystem struct {
 	Path      string
 	SessionID string
 	Serial    int64
+
+	fetches []string
+}
+
+func (s *RRDPSystem) SetSentryScope(scope *sentry.Scope) {
+	scope.SetTag("RRDP.Serial", fmt.Sprintf("%d", s.Serial))
+	scope.SetTag("RRDP.SessionID", fmt.Sprintf("%s", s.SessionID))
+	scope.SetTag("RRDP.Path", fmt.Sprintf("%s", s.Path))
+	scope.SetExtra("RRDP.Deltas", s.fetches)
 }
 
 func DecodeRRDPBase64(value string) ([]byte, error) {
@@ -153,6 +163,8 @@ func DecodeRRDPBase64(value string) ([]byte, error) {
 }
 
 func (s *RRDPSystem) FetchRRDP(cbArgs ...interface{}) error {
+	s.fetches = make([]string, 0)
+
 	if s.Log != nil {
 		s.Log.Infof("RRDP: Downloading root notification %v", s.Path)
 	}
@@ -236,6 +248,7 @@ func (s *RRDPSystem) FetchRRDP(cbArgs ...interface{}) error {
 			if s.Log != nil {
 				s.Log.Debugf("RRDP: Fetching serial: %v (%v) for %v", serial, elNode.URI, s.Path)
 			}
+			s.fetches = append(s.fetches, elNode.URI)
 			data, err := s.Fetcher.GetXML(elNode.URI)
 			if err != nil {
 				return err
