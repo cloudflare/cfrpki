@@ -189,6 +189,10 @@ func EncryptSignatureRSA(rand io.Reader, signature []byte, privKey *rsa.PrivateK
 // Pass fullbytes of any EContent
 // Do one for ROA and MFT
 func EContentToEncap(econtent []byte) ([]byte, error) {
+	return EContentToEncapBF(econtent, false)
+}
+
+func EContentToEncapBF(econtent []byte, skipbf bool) ([]byte, error) {
 	var inner asn1.RawValue
 	_, err := asn1.Unmarshal(econtent, &inner)
 	if err != nil {
@@ -199,7 +203,10 @@ func EContentToEncap(econtent []byte) ([]byte, error) {
 	if err != nil {
 		return inner2.Bytes, err
 	}
-	fullbytes, _, err := BadFormatGroup(inner2.Bytes)
+	fullbytes := inner2.Bytes
+	if !skipbf {
+		fullbytes, _, err = BadFormatGroup(inner2.Bytes)
+	}
 	return fullbytes, err
 }
 
@@ -258,6 +265,15 @@ func (cms *CMS) Sign(rand io.Reader, ski []byte, encap []byte, priv interface{},
 		return err
 	}
 	cms.SignedData.Certificates = asn1.RawValue{FullBytes: certM}
+	return nil
+}
+
+func (cms *CMS) AddCRLs(crls []byte) error {
+	crlsM, err := asn1.MarshalWithParams([]asn1.RawValue{asn1.RawValue{FullBytes: crls}}, "tag:1,optional")
+	if err != nil {
+		return err
+	}
+	cms.SignedData.CRLs = asn1.RawValue{FullBytes: crlsM}
 	return nil
 }
 
@@ -378,8 +394,15 @@ func EncodeCMS(certificate []byte, encapContent interface{}, signingTime time.Ti
 		}
 		val.FullBytes = mftBytes
 		signOid = ManifestOID
+	case *XML:
+		xmlBytes, err := asn1.Marshal(*ec)
+		if err != nil {
+			return nil, err
+		}
+		val.FullBytes = xmlBytes
+		signOid = XMLOID
 	default:
-		return nil, errors.New("Unknown type of content (not ROA or Manifest)")
+		return nil, errors.New("Unknown type of content (not ROA, Manifest or XML)")
 	}
 
 	certificateBytes, err := asn1.MarshalWithParams(certificate, "tag:0,implicit")

@@ -86,7 +86,6 @@ func HashRSAPublicKey(key rsa.PublicKey) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	//fmt.Printf("TESTA A %x\n", keyBytesHash)
 
 	hash := sha1.Sum(keyBytesHash)
 	return hash[:], nil
