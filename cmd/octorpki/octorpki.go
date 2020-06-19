@@ -32,8 +32,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/cloudflare/gortr/prefixfile"
-	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
+
+	// Debugging
+	"github.com/getsentry/sentry-go"
+	"github.com/opentracing/opentracing-go"
+	jcfg "github.com/uber/jaeger-client-go/config"
+	"net/http/pprof"
 )
 
 const (
@@ -64,6 +69,7 @@ var (
 	RRDPFile = flag.String("rrdp.file", "cache/rrdp.json", "Save RRDP state")
 	RRDPMode = flag.Int("rrdp.mode", RRDP_MATCH_RSYNC, fmt.Sprintf("RRDP security mode (%v = no check, %v = match rsync domain, %v = match path)",
 		RRDP_NO_MATCH, RRDP_MATCH_RSYNC, RRDP_MATCH_STRICT))
+	RRDPFailover = flag.Bool("rrdp.failover", true, "Failover to rsync when RRDP fails")
 
 	Mode       = flag.String("mode", "server", "Select output mode (server/oneoff)")
 	WaitStable = flag.Bool("output.wait", true, "Wait until stable state to create the file (returns 503 when unstable on HTTP)")
@@ -82,6 +88,11 @@ var (
 	Sign     = flag.Bool("output.sign", true, "Sign output (GoRTR compatible)")
 	SignKey  = flag.String("output.sign.key", "private.pem", "ECDSA signing key")
 	Validity = flag.String("output.sign.validity", "1h", "Validity")
+
+	// Debugging options
+	Pprof     = flag.Bool("pprof", false, "Enable pprof endpoint")
+	Tracer    = flag.Bool("tracer", false, "Enable tracer")
+	SentryDSN = flag.String("sentry.dsn", "", "Send errors to Sentry")
 
 	Version = flag.Bool("version", false, "Print version")
 
@@ -234,7 +245,8 @@ type state struct {
 	FinalRsyncFetch map[string]bool
 	FinalRRDPFetch  map[string][]string
 
-	RRDPInfo map[string]RRDPInfo
+	RRDPInfo     map[string]RRDPInfo
+	RRDPFailover bool
 
 	ROAList *prefixfile.ROAList
 
@@ -246,6 +258,8 @@ type state struct {
 	Iteration          int
 	ValidationMessages []string
 	ROAsTALsCount      []ROAsTAL
+
+	Pprof bool
 }
 
 func (s *state) MainReduce() bool {
@@ -357,42 +371,51 @@ func (s *state) ReceiveRRDPFileCallback(main string, url string, path string, da
 	return nil
 }
 
-func (s *state) LoadRRDP(file string) {
+func (s *state) LoadRRDP(file string) error {
 	f, err := os.Open(file)
 	if err != nil {
-		log.Error(err)
-		return
+		return err
 	}
+	defer f.Close()
 
 	info := make(map[string]RRDPInfo)
 	dec := json.NewDecoder(f)
 	err = dec.Decode(&info)
 	if err != nil && err != io.EOF {
-		log.Error(err)
-	} else if err == nil {
-		s.RRDPInfo = info
+		return err
 	}
-	f.Close()
+	s.RRDPInfo = info
+	return nil
 }
 
-func (s *state) SaveRRDP(file string) {
+func (s *state) SaveRRDP(file string) error {
 	f, err := os.Create(file)
 	if err != nil {
-		log.Error(err)
-		return
+		return err
 	}
+	defer f.Close()
 
 	dec := json.NewEncoder(f)
-	err = dec.Encode(s.RRDPInfo)
-	if err != nil {
-		log.Error(err)
-	}
-	f.Close()
+	return dec.Encode(s.RRDPInfo)
 }
 
-func (s *state) MainRRDP() {
+func (s *state) MainRRDP(pSpan opentracing.Span) {
+	tracer := opentracing.GlobalTracer()
+	span := tracer.StartSpan(
+		"rrdp",
+		opentracing.ChildOf(pSpan.Context()),
+	)
+	defer span.Finish()
+
 	for rsync, v := range s.FinalRRDPFetch {
 		for _, vv := range v {
+			rSpan := tracer.StartSpan(
+				"sync",
+				opentracing.ChildOf(span.Context()),
+			)
+			rSpan.SetTag("rrdp", vv)
+			rSpan.SetTag("rsync", rsync)
+			rSpan.SetTag("type", "rrdp")
 			log.Infof("RRDP sync %v", vv)
 
 			rrdpid := vv
@@ -433,8 +456,28 @@ func (s *state) MainRRDP() {
 			err := rrdp.FetchRRDP(rsync)
 			t2 := time.Now().UTC()
 			if err != nil {
+				rSpan.SetTag("error", true)
+
 				log.Errorf("Error when processing %v (for %v): %v. Will add to rsync.", path, rsync, err)
-				s.FailoverRsync = append(s.FailoverRsync, rsync)
+				sentry.WithScope(func(scope *sentry.Scope) {
+					if errC, ok := err.(interface{ SetURL(string, string) }); ok {
+						errC.SetURL(vv, rsync)
+					}
+					if errC, ok := err.(interface{ SetSentryScope(*sentry.Scope) }); ok {
+						errC.SetSentryScope(scope)
+					}
+					rrdp.SetSentryScope(scope)
+					scope.SetTag("Rsync", rsync)
+					scope.SetTag("RRDP", vv)
+					sentry.CaptureException(err)
+				})
+
+				if s.RRDPFailover {
+					rSpan.LogKV("event", "rrdp failure", "type", "failover to rsync", "message", err)
+					s.FailoverRsync = append(s.FailoverRsync, rsync)
+				} else {
+					rSpan.LogKV("event", "rrdp failure", "type", "skipping failover to rsync", "message", err)
+				}
 
 				MetricRRDPErrors.With(
 					prometheus.Labels{
@@ -447,8 +490,20 @@ func (s *state) MainRRDP() {
 				tmpStats.LastError = fmt.Sprint(err)
 				tmpStats.Duration = t2.Sub(t1).Seconds()
 				s.RRDPStats[vv] = tmpStats
+				rSpan.Finish()
 				continue
 			}
+
+			rSpan.LogKV("event", "rrdp", "type", "success", "message", "rrdp successfully fetched")
+			sentry.WithScope(func(scope *sentry.Scope) {
+				scope.SetLevel(sentry.LevelInfo)
+				scope.SetTag("Rsync", rsync)
+				scope.SetTag("RRDP", vv)
+				rrdp.SetSentryScope(scope)
+				sentry.CaptureMessage("fetched rrdp successfully")
+			})
+
+			rSpan.Finish()
 			s.Fetcher.PathAvailable = append(s.Fetcher.PathAvailable, rsync)
 			MetricRRDPSerial.With(
 				prometheus.Labels{
@@ -477,7 +532,14 @@ func (s *state) MainRRDP() {
 	}
 }
 
-func (s *state) MainRsync() {
+func (s *state) MainRsync(pSpan opentracing.Span) {
+	tracer := opentracing.GlobalTracer()
+	span := tracer.StartSpan(
+		"rsync",
+		opentracing.ChildOf(pSpan.Context()),
+	)
+	defer span.Finish()
+
 	rsync := syncpki.RsyncSystem{
 		Log: log.StandardLogger(),
 	}
@@ -489,6 +551,13 @@ func (s *state) MainRsync() {
 	rsyncList = append(rsyncList, s.FailoverRsync...)
 
 	for _, v := range rsyncList {
+		rSpan := tracer.StartSpan(
+			"sync",
+			opentracing.ChildOf(span.Context()),
+		)
+		rSpan.SetTag("rsync", v)
+		rSpan.SetTag("type", "rsync")
+
 		log.Infof("Rsync sync %v", v)
 		downloadPath, err := syncpki.GetDownloadPath(v, true)
 		if err != nil {
@@ -507,7 +576,20 @@ func (s *state) MainRsync() {
 		files, err := rsync.RunRsync(ctxRsync, v, s.RsyncBin, path)
 		t2 := time.Now().UTC()
 		if err != nil {
-			log.Error(err)
+			rSpan.SetTag("error", true)
+			rSpan.LogKV("event", "rsync failure", "message", err)
+			log.Errorf("Error when processing %v (for %v): %v. Will add to rsync.", path, rsync, err)
+			sentry.WithScope(func(scope *sentry.Scope) {
+				if errC, ok := err.(interface{ SetRsync(string) }); ok {
+					errC.SetRsync(v)
+				}
+				if errC, ok := err.(interface{ SetSentryScope(*sentry.Scope) }); ok {
+					errC.SetSentryScope(scope)
+				}
+				scope.SetTag("Rsync", v)
+				sentry.CaptureException(err)
+			})
+
 			MetricRsyncErrors.With(
 				prometheus.Labels{
 					"address": v,
@@ -518,6 +600,13 @@ func (s *state) MainRsync() {
 			tmpStats.LastFetchError = int(time.Now().UTC().UnixNano() / 1000000000)
 			tmpStats.LastError = fmt.Sprint(err)
 			s.RsyncStats[v] = tmpStats
+		} else {
+			rSpan.LogKV("event", "rsync", "type", "success", "message", "rsync successfully fetched")
+			sentry.WithScope(func(scope *sentry.Scope) {
+				scope.SetLevel(sentry.LevelInfo)
+				scope.SetTag("Rsync", v)
+				sentry.CaptureMessage("fetched rsync successfully")
+			})
 		}
 		cancelRsync()
 		var countFiles int
@@ -525,6 +614,9 @@ func (s *state) MainRsync() {
 		if files != nil {
 			countFiles = len(files)
 		}
+
+		rSpan.Finish()
+
 		MetricSIACounts.With(
 			prometheus.Labels{
 				"address": v,
@@ -577,15 +669,48 @@ func FilterDuplicates(roalist []prefixfile.ROAJson) []prefixfile.ROAJson {
 	return roalistNodup
 }
 
-func (s *state) MainValidation() {
+func (s *state) MainValidation(pSpan opentracing.Span) {
+	tracer := opentracing.GlobalTracer()
+	span := tracer.StartSpan(
+		"validation",
+		opentracing.ChildOf(pSpan.Context()),
+	)
+	defer span.Finish()
+
 	manager := make([]*pki.SimpleManager, len(s.Tals))
 	for i, tal := range s.Tals {
+		tSpan := tracer.StartSpan(
+			"explore",
+			opentracing.ChildOf(span.Context()),
+		)
+		tSpan.SetTag("tal", tal.Path)
+
 		validator := pki.NewValidator()
 
-		manager[i] = pki.NewSimpleManager()
+		sm := pki.NewSimpleManager()
+		manager[i] = sm
+		manager[i].ReportErrors = true
 		manager[i].Validator = validator
 		manager[i].FileSeeker = s.Fetcher
 		manager[i].Log = s
+
+		go func(sm *pki.SimpleManager) {
+			for err := range sm.Errors {
+				tSpan.SetTag("error", true)
+				tSpan.LogKV("event", "resource issue", "type", "skipping resource", "message", err)
+				//log.Errorf("Error when processing %v (for %v): %v.", path, rsync, err)
+				log.Error(err)
+				sentry.WithScope(func(scope *sentry.Scope) {
+					if errC, ok := err.(interface{ SetSentryScope(*sentry.Scope) }); ok {
+						errC.SetSentryScope(scope)
+					}
+					scope.SetTag("TrustAnchor", tal.Path)
+					sentry.CaptureException(err)
+				})
+			}
+
+			//log.Warn("Closed errors")
+		}(sm)
 
 		manager[i].AddInitial([]*pki.PKIFile{tal})
 		s.CountExplore = manager[i].Explore(!s.UseManifest, false)
@@ -624,6 +749,9 @@ func (s *state) MainValidation() {
 				count++
 			}
 		}
+		sm.Close()
+		tSpan.LogKV("count-valid", count, "count-total", s.CountExplore)
+		tSpan.Finish()
 	}
 
 	// Generating ROAs list
@@ -633,6 +761,11 @@ func (s *state) MainValidation() {
 	var counts int
 	s.ROAsTALsCount = make([]ROAsTAL, 0)
 	for i, tal := range s.Tals {
+		eSpan := tracer.StartSpan(
+			"extract",
+			opentracing.ChildOf(span.Context()),
+		)
+		eSpan.SetTag("tal", tal.Path)
 		talname := tal.Path
 		if len(s.TalNames) == len(s.Tals) {
 			talname = s.TalNames[i]
@@ -654,6 +787,8 @@ func (s *state) MainValidation() {
 				counttal++
 			}
 		}
+		eSpan.Finish()
+
 		s.ROAsTALsCount = append(s.ROAsTALsCount, ROAsTAL{TA: talname, Count: counttal})
 		MetricROAsCount.With(
 			prometheus.Labels{
@@ -671,12 +806,20 @@ func (s *state) MainValidation() {
 
 	roalist.Data = FilterDuplicates(roalist.Data)
 	if s.Sign {
+		sSpan := tracer.StartSpan(
+			"sign",
+			opentracing.ChildOf(span.Context()),
+		)
+
 		signdate, sign, err := roalist.Sign(s.Key)
 		if err != nil {
 			log.Error(err)
+			sentry.CaptureException(err)
 		}
 		roalist.Metadata.Signature = sign
 		roalist.Metadata.SignatureDate = signdate
+
+		sSpan.Finish()
 	}
 
 	s.ROAList = roalist
@@ -806,11 +949,19 @@ func (s *state) Serve(addr string, path string, metricsPath string, infoPath str
 	}
 	log.Infof("Serving HTTP on %v%v", addr, fullPath)
 
-	r := mux.NewRouter()
+	r := http.NewServeMux()
 
 	r.HandleFunc(fullPath, s.ServeROAs)
 	r.HandleFunc(infoPath, s.ServeInfo)
 	r.Handle(metricsPath, promhttp.Handler())
+
+	if s.Pprof {
+		r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		r.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		r.HandleFunc("/debug/pprof/trace", pprof.Trace)
+		r.HandleFunc("/debug/pprof/", pprof.Index)
+	}
 
 	corsReq := cors.New(cors.Options{
 		AllowedOrigins:   strings.Split(corsOrigin, ","),
@@ -818,11 +969,11 @@ func (s *state) Serve(addr string, path string, metricsPath string, infoPath str
 		AllowCredentials: corsCreds,
 	}).Handler(r)
 
-	http.Handle("/", corsReq)
-	log.Fatal(http.ListenAndServe(addr, nil))
+	log.Fatal(http.ListenAndServe(addr, corsReq))
 }
 
 func init() {
+
 	prometheus.MustRegister(MetricSIACounts)
 	prometheus.MustRegister(MetricRsyncErrors)
 	prometheus.MustRegister(MetricRRDPErrors)
@@ -846,7 +997,35 @@ func main() {
 
 	lvl, _ := log.ParseLevel(*LogLevel)
 	log.SetLevel(lvl)
-	log.Infof("Validator started")
+
+	sentryDsn := *SentryDSN
+	if sentryDsn == "" {
+		sentryDsn = os.Getenv("SENTRY_DSN")
+	}
+	if sentryDsn != "" {
+		err := sentry.Init(sentry.ClientOptions{
+			Dsn: sentryDsn,
+		})
+		if err != nil {
+			log.Fatalf("failed initializing sentry: %s", err)
+		}
+		defer sentry.Flush(2 * time.Second)
+	}
+
+	log.Info("Validator started")
+
+	if *Tracer {
+		cfg, err := jcfg.FromEnv()
+		if err != nil {
+			log.Fatal(err)
+		}
+		tracer, closer, err := cfg.NewTracer()
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer closer.Close()
+		opentracing.SetGlobalTracer(tracer)
+	}
 
 	mainRefresh, _ := time.ParseDuration(*Refresh)
 
@@ -881,8 +1060,9 @@ func main() {
 
 		EnableCache: *CacheHeader,
 
-		Mode:     *Mode,
-		RRDPMode: *RRDPMode,
+		Mode:         *Mode,
+		RRDPMode:     *RRDPMode,
+		RRDPFailover: *RRDPFailover,
 
 		RsyncFetch:      make(map[string]time.Time),
 		RRDPFetch:       make(map[string][]string),
@@ -909,6 +1089,8 @@ func main() {
 		RsyncStats:    make(map[string]Stats),
 		RRDPStats:     make(map[string]Stats),
 		ROAsTALsCount: make([]ROAsTAL, 0),
+
+		Pprof: *Pprof,
 	}
 
 	if *Sign {
@@ -933,20 +1115,40 @@ func main() {
 	} else if *Mode != "oneoff" {
 		log.Fatalf("Mode %v is not specified. Choose either server or oneoff", *Mode)
 	}
+	tracer := opentracing.GlobalTracer()
 
+	var spanActive bool
+	var pSpan opentracing.Span
+	var iterationsUntilStable int
 	for {
+		if !spanActive {
+			pSpan = tracer.StartSpan("multoperation")
+			spanActive = true
+			iterationsUntilStable = 0
+		}
+
+		span := tracer.StartSpan("operation", opentracing.ChildOf(pSpan.Context()))
+
 		s.Iteration++
+		iterationsUntilStable++
+		span.SetTag("iteration", s.Iteration)
 		s.FailoverRsync = make([]string, 0)
 		s.Fetcher.PathAvailable = make([]string, 0)
 		if *RRDP {
 			t1 := time.Now().UTC()
 			// RRDP
 			if *RRDPFile != "" {
-				s.LoadRRDP(*RRDPFile)
+				err = s.LoadRRDP(*RRDPFile)
+				if err != nil {
+					sentry.CaptureException(err)
+				}
 			}
-			s.MainRRDP()
+			s.MainRRDP(span)
 			if *RRDPFile != "" {
 				s.SaveRRDP(*RRDPFile)
+				if err != nil {
+					sentry.CaptureException(err)
+				}
 			}
 
 			t2 := time.Now().UTC()
@@ -960,7 +1162,7 @@ func main() {
 		t1 := time.Now().UTC()
 
 		// Rsync
-		s.MainRsync()
+		s.MainRsync(span)
 
 		t2 := time.Now().UTC()
 		MetricOperationTime.With(
@@ -973,7 +1175,7 @@ func main() {
 		t1 = time.Now().UTC()
 
 		// Validation
-		s.MainValidation()
+		s.MainValidation(span)
 
 		t2 = time.Now().UTC()
 		s.ValidationDuration = t2.Sub(t1)
@@ -1012,6 +1214,9 @@ func main() {
 
 		}
 
+		span.SetTag("stable", s.Stable)
+		span.Finish()
+
 		if *Mode == "oneoff" && s.Stable {
 			log.Info("Stable, terminating")
 			break
@@ -1021,6 +1226,10 @@ func main() {
 			MetricLastStableValidation.Set(float64(s.LastComputed.UnixNano() / 1000000000))
 			MetricState.Set(float64(1))
 
+			pSpan.SetTag("iterations", iterationsUntilStable)
+			pSpan.Finish()
+			spanActive = false
+
 			log.Infof("Stable state. Revalidating in %v", mainRefresh)
 			<-time.After(mainRefresh)
 			s.Stable = false
@@ -1029,5 +1238,6 @@ func main() {
 
 			log.Info("Still exploring. Revalidating now")
 		}
+
 	}
 }

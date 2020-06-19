@@ -4,7 +4,6 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/cloudflare/cfrpki/validator/lib"
@@ -26,6 +25,18 @@ const (
 var (
 	CARepository = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 5}
 	Manifest     = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 10}
+
+	TypeToName = map[int]string{
+		TYPE_UNKNOWN: "unknown",
+		TYPE_CER:     "certificate",
+		TYPE_MFT:     "manifest",
+		TYPE_ROA:     "roa",
+		TYPE_CRL:     "crl",
+		TYPE_ROACER:  "roa-ee",
+		TYPE_MFTCER:  "manifest-ee",
+		TYPE_CAREPO:  "ca-repo",
+		TYPE_TAL:     "tal",
+	}
 )
 
 type Resource struct {
@@ -74,6 +85,9 @@ type SimpleManager struct {
 	Explored        map[string]bool
 	ToExploreUnique map[string]bool
 	Log             Log
+
+	ReportErrors bool
+	Errors       chan error
 }
 
 func NewSimpleManager() *SimpleManager {
@@ -81,7 +95,24 @@ func NewSimpleManager() *SimpleManager {
 		PathOfResource:  make(map[*Resource]*PKIFile),
 		Explored:        make(map[string]bool),
 		ToExploreUnique: make(map[string]bool),
+		Errors:          make(chan error, 50),
 	}
+}
+
+func (sm *SimpleManager) Close() {
+	close(sm.Errors)
+}
+
+func (sm *SimpleManager) reportError(err error) {
+	if sm.ReportErrors {
+		sm.Errors <- err
+	}
+}
+func (sm *SimpleManager) reportErrorFile(err error, file *PKIFile, seek *SeekFile) {
+	if errC, ok := err.(interface{ AddFileErrorInfo(*PKIFile, *SeekFile) }); file != nil && ok {
+		errC.AddFileErrorInfo(file, seek)
+	}
+	sm.reportError(err)
 }
 
 func (sm *SimpleManager) PutFiles(fileList []*PKIFile) {
@@ -121,6 +152,9 @@ func (sm *SimpleManager) GetNextFile(curExplore *PKIFile) (*SeekFile, error) {
 
 	if sm.FileSeeker != nil {
 		data, err := sm.FileSeeker.GetFile(curExplore)
+		if err != nil {
+			err = NewFileError(err)
+		}
 		return data, err
 	}
 	return nil, errors.New("No interface to fetch file, check FileSeeker")
@@ -358,7 +392,7 @@ func (v *Validator) AddCert(cert *librpki.RPKI_Certificate, trust bool) (bool, [
 
 	_, exists := v.Objects[ski]
 	if exists {
-		return false, nil, nil, errors.New(fmt.Sprintf("A certificate with Subject Key Id: %v already exists", hex.EncodeToString(cert.Certificate.SubjectKeyId)))
+		return false, nil, nil, NewCertificateErrorConflict(cert)
 	}
 
 	_, hasParentValid := v.ValidObjects[aki]
@@ -391,12 +425,10 @@ func (v *Validator) AddCert(cert *librpki.RPKI_Certificate, trust bool) (bool, [
 }
 
 func (v *Validator) ValidateCertificate(cert *librpki.RPKI_Certificate, trust bool) error {
-	ski := cert.Certificate.SubjectKeyId
-
 	// Check time validity
 	err := cert.ValidateTime(v.Time)
 	if err != nil {
-		return errors.New(fmt.Sprintf("Could not validate certificate due to expiration date %x: %v", ski, err))
+		return NewCertificateErrorValidity(cert, err)
 	}
 
 	if trust {
@@ -407,68 +439,70 @@ func (v *Validator) ValidateCertificate(cert *librpki.RPKI_Certificate, trust bo
 	aki := cert.Certificate.AuthorityKeyId
 	parent, hasParent := v.ValidObjects[string(aki)]
 	if !hasParent {
-		return errors.New(fmt.Sprintf("Could not find parent %x for certificate %x", aki, ski))
+		return NewCertificateErrorParent(cert, nil, errors.New("missing parent"))
 	}
 
 	parentCert, ok := parent.Resource.(*librpki.RPKI_Certificate)
 	if !ok {
-		return errors.New(fmt.Sprintf("Parent %x of %x is not a RPKI Certificate", ski, aki))
+		return NewCertificateErrorParent(cert, parentCert, errors.New("parent is not a rpki certificate"))
 	}
 	err = cert.Validate(parentCert)
 	if err != nil {
-		return errors.New(fmt.Sprintf("Could not validate certificate %x against parent %x: %v", ski, aki, err))
+		return NewCertificateErrorParent(cert, parentCert, err)
 	}
 
 	// Check presence in revokation lists
 	_, revoked := v.Revoked[string(aki)+cert.Certificate.SerialNumber.String()]
 	if revoked {
-		return errors.New(fmt.Sprintf("Certificate was revoked by issuer %x", ski))
+		return NewCertificateErrorRevocation(cert)
 	}
 
 	// Check IPs
-	valids, invalids, checkParent := cert.ValidateIPCertificate(parentCert)
+	validIPs, invalidIPs, checkParent := cert.ValidateIPCertificate(parentCert)
 	chain := parent.Parent
 	for chain != nil && len(checkParent) > 0 {
 		key := parentCert.Certificate.AuthorityKeyId
 		upperCert, found := v.ValidObjects[string(key)]
 		if !found {
-			return errors.New(fmt.Sprintf("One of the parents (%x) of %x is not valid", key, ski))
+			//return errors.New(fmt.Sprintf("One of the parents (%x) of %x is not valid", key, ski))
+			return NewCertificateErrorParent(cert, parentCert, errors.New(fmt.Sprintf("ancestor %x is missing", key)))
 		}
 		chainCert, ok := upperCert.Resource.(*librpki.RPKI_Certificate)
 		if !ok {
-			return errors.New(fmt.Sprintf("One of the parents (%x) of %x is not a RPKI Certificate", key, ski))
+			//return errors.New(fmt.Sprintf("One of the parents (%x) of %x is not a RPKI Certificate", key, ski))
+			return NewCertificateErrorParent(cert, parentCert, errors.New(fmt.Sprintf("ancestor %x is not a rpki certificate", key)))
 		}
-		validsTmp, invalidsTmp, checkParentTmp := librpki.ValidateIPCertificateList(checkParent, chainCert)
-		valids = append(valids, validsTmp...)
-		invalids = append(invalids, invalidsTmp...)
+		validTmp, invalidTmp, checkParentTmp := librpki.ValidateIPCertificateList(checkParent, chainCert)
+		validIPs = append(validIPs, validTmp...)
+		invalidIPs = append(invalidIPs, invalidTmp...)
 		checkParent = checkParentTmp
 		chain = chain.Parent
 	}
-	if len(invalids) > 0 {
-		return errors.New(fmt.Sprintf("%x contains invalid IP addresses: %v", ski, invalids))
-	}
 
 	// Check ASNs
-	validsASN, invalidsASN, checkParentASN := cert.ValidateASNCertificate(parentCert)
+	validASNs, invalidASNs, checkParentASN := cert.ValidateASNCertificate(parentCert)
 	chain = parent.Parent
 	for chain != nil && len(checkParentASN) > 0 {
 		key := parentCert.Certificate.AuthorityKeyId
 		upperCert, found := v.ValidObjects[string(key)]
 		if !found {
-			return errors.New(fmt.Sprintf("One of the parents (%x) of %x is not valid", key, ski))
+			return NewCertificateErrorParent(cert, parentCert, errors.New(fmt.Sprintf("ancestor %x is not valid", key)))
 		}
 		chainCert, ok := upperCert.Resource.(*librpki.RPKI_Certificate)
 		if !ok {
-			return errors.New(fmt.Sprintf("One of the parents (%x) of %x is not a RPKI Certificate", key, ski))
+			return NewCertificateErrorParent(cert, parentCert, errors.New(fmt.Sprintf("ancestor %x is not a rpki certificate", key)))
 		}
-		validsTmp, invalidsTmp, checkParentTmp := librpki.ValidateASNCertificateList(checkParentASN, chainCert)
-		validsASN = append(validsASN, validsTmp...)
-		invalidsASN = append(invalidsASN, invalidsTmp...)
+		validTmp, invalidTmp, checkParentTmp := librpki.ValidateASNCertificateList(checkParentASN, chainCert)
+		validASNs = append(validASNs, validTmp...)
+		invalidASNs = append(invalidASNs, invalidTmp...)
 		checkParentASN = checkParentTmp
 		chain = chain.Parent
 	}
-	if len(invalidsASN) > 0 {
-		return errors.New(fmt.Sprintf("%x contains invalid ASNs: %v", ski, invalidsASN))
+
+	if len(invalidIPs) > 0 || len(invalidASNs) > 0 {
+		//return errors.New(fmt.Sprintf("%x contains invalid ASNs: %v", ski, invalidsASN))
+		//return errors.New(fmt.Sprintf("%x contains invalid IP addresses: %v", ski, invalids))
+		return NewCertificateErrorResource(cert, invalidIPs, invalidASNs)
 	}
 
 	return nil
@@ -504,6 +538,12 @@ func (v *Validator) AddROA(pkifile *PKIFile, roa *librpki.RPKI_ROA) (bool, *Reso
 		v.ValidROA[string(key)] = res_roa
 	}
 	v.ROA[string(key)] = res_roa
+
+	if err != nil {
+		errRes := NewResourceErrorWrap(roa, err)
+		errRes.InnerValidity = valid
+		err = errRes
+	}
 
 	return valid, res_roa, err
 }
@@ -541,6 +581,12 @@ func (v *Validator) AddManifest(pkifile *PKIFile, mft *librpki.RPKI_Manifest) (b
 		v.ValidManifest[string(key)] = res_mft
 	}
 	v.Manifest[string(key)] = res_mft
+
+	if err != nil {
+		errRes := NewResourceErrorWrap(mft, err)
+		errRes.InnerValidity = valid
+		err = errRes
+	}
 
 	return valid, pathCert, res_mft, err
 }
@@ -688,13 +734,12 @@ func (sm *SimpleManager) ExploreAdd(file *PKIFile, data *SeekFile, addInvalidChi
 	valid, subFiles, res, err := sm.Validator.AddResource(file, data.Data)
 	if err != nil {
 		if sm.Log != nil {
-			sm.Log.Errorf("Error adding Resource %v: %v", file.Path, err)
+			//sm.Log.Errorf("Error adding Resource %v: %v", file.Path, err)
+			sm.reportErrorFile(err, file, data)
 		}
 	}
 	if !valid && err == nil {
-		if sm.Log != nil {
-			sm.Log.Warnf("Resource %v is invalid: %v", file.Path, err)
-		}
+		sm.reportErrorFile(err, file, data)
 	}
 	for _, subFile := range subFiles {
 		subFile.Parent = file
@@ -718,9 +763,7 @@ func (sm *SimpleManager) Explore(notMFT bool, addInvalidChilds bool) int {
 
 		file, hasMore, err = sm.GetNextExplore()
 		if err != nil {
-			if sm.Log != nil {
-				sm.Log.Errorf("Error getting file: %v", err)
-			}
+			sm.reportError(err)
 		} else {
 			count++
 		}
@@ -728,9 +771,7 @@ func (sm *SimpleManager) Explore(notMFT bool, addInvalidChilds bool) int {
 			data, err := sm.GetNextFile(file)
 
 			if err != nil {
-				if sm.Log != nil {
-					sm.Log.Errorf("Error exploring file: %v", err)
-				}
+				sm.reportErrorFile(err, file, data)
 			} else if data != nil {
 				sm.ExploreAdd(file, data, addInvalidChilds)
 				hasMore = sm.HasMore()
@@ -743,9 +784,7 @@ func (sm *SimpleManager) Explore(notMFT bool, addInvalidChilds bool) int {
 			err = sm.GetNextRepository(file, sm.ExploreAdd)
 			sm.Explored[file.Repo] = true
 			if err != nil {
-				if sm.Log != nil {
-					sm.Log.Errorf("Error exploring repository: %v", err)
-				}
+				sm.reportErrorFile(err, file, nil)
 			}
 		}
 		hasMore = sm.HasMore()
