@@ -163,6 +163,7 @@ func DecodeRRDPBase64(value string) ([]byte, error) {
 }
 
 func (s *RRDPSystem) FetchRRDP(cbArgs ...interface{}) error {
+	// todo: add more Sentry logging
 	s.fetches = make([]string, 0)
 
 	if s.Log != nil {
@@ -240,7 +241,8 @@ func (s *RRDPSystem) FetchRRDP(cbArgs ...interface{}) error {
 			s.Log.Infof("RRDP: %v has %d deltas to parse (cur: %v, last: %v)", s.Path, curSerial-lastSerial, curSerial, lastSerial)
 		}
 
-		for serial = lastSerial; serial <= curSerial; serial++ {
+		tmpCurSerial := lastSerial
+		for serial = lastSerial + 1; serial <= curSerial && curSerial-lastSerial > 0; serial++ {
 			elNode, ok := deltasMap[serial]
 			if !ok {
 				return errors.New(fmt.Sprintf("Could not find delta with serial %v", serial))
@@ -281,10 +283,11 @@ func (s *RRDPSystem) FetchRRDP(cbArgs ...interface{}) error {
 					}
 				}
 			}
+			tmpCurSerial = serial
 		}
-		curSerial = serial
+		curSerial = tmpCurSerial
 		if s.Log != nil {
-			s.Log.Infof("RRDP: finished downloading %v. Last serial %v", s.Path, curSerial)
+			s.Log.Infof("RRDP: finished processing notifications. Last serial %d", curSerial)
 		}
 	}
 	s.Serial = curSerial
