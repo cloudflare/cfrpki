@@ -54,8 +54,8 @@ By default, when unstable, the server will return `503` in order to avoid distri
 
 The initial cold start require a few iterations which take 5 to 10 minutes (around 500MB are downloaded).
 A refresh is much faster.
-- Fetching root certificates listed in TAL (via rsync)
-- Fetching repositories listed in the root certificates (RRDP and Rsync)
+- Fetching root certificate listed in TAL
+- Fetching repositories listed in the root certificates (RRDP and rsync)
 - Fetching sub-repositories (National Internet Registries and delegated organizations)
 
 Once it reaches a stable state, it generates a JSON list of Route Object Authorization (ROA).
