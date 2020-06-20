@@ -46,9 +46,29 @@ var (
 	buildinfos = ""
 	AppVersion = "OctoRPKI " + version + " " + buildinfos
 
+	ArinRPA        = "https://www.arin.net/resources/manage/rpki/rpa.pdf"
+	ArinTALAddress = "https://www.arin.net/resources/manage/rpki/arin.tal"
+	ArinTALPath    = "tals/arin.tal"
+	ArinTALName    = "ARIN"
+
+	CLITalPath = []string{
+		"tals/afrinic.tal",
+		"tals/apnic.tal",
+		ArinTALPath,
+		"tals/lacnic.tal",
+		"tals/ripe.tal",
+	}
+	CLITalNames = []string{
+		"AFRINIC",
+		"APNIC",
+		ArinTALName,
+		"LACNIC",
+		"RIPE",
+	}
+
 	// Validator Options
-	RootTAL     = flag.String("tal.root", "tals/afrinic.tal,tals/apnic.tal,tals/arin.tal,tals/lacnic.tal,tals/ripe.tal", "List of TAL separated by comma")
-	TALNames    = flag.String("tal.name", "AFRINIC,APNIC,ARIN,LACNIC,RIPE", "Name of the TALs")
+	RootTAL     = flag.String("tal.root", strings.Join(CLITalPath, ","), "List of TAL separated by comma")
+	TALNames    = flag.String("tal.name", strings.Join(CLITalNames, ","), "Name of the TALs")
 	UseManifest = flag.Bool("manifest.use", true, "Use manifests file to explore instead of going into the repository")
 	Basepath    = flag.String("cache", "cache/", "Base directory to store certificates")
 	LogLevel    = flag.String("loglevel", "info", "Log level")
@@ -85,6 +105,9 @@ var (
 	Pprof     = flag.Bool("pprof", false, "Enable pprof endpoint")
 	Tracer    = flag.Bool("tracer", false, "Enable tracer")
 	SentryDSN = flag.String("sentry.dsn", "", "Send errors to Sentry")
+
+	// ARIN RPA aggreement CLI
+	AcceptRPA = flag.Bool("accept-arin-rpa", false, fmt.Sprintf("Agree to the ARIN Relying Party Agrement (%s) and automatically save the tal from %s to %s", ArinRPA, ArinTALAddress, ArinTALPath))
 
 	Version = flag.Bool("version", false, "Print version")
 
@@ -1097,6 +1120,50 @@ func init() {
 	prometheus.MustRegister(MetricLastFetch)
 }
 
+func (s *state) DownloadARIN(address, path string) error {
+	req, err := http.NewRequest("GET", ArinTALAddress, nil)
+	if err != nil {
+		sentry.CaptureException(err)
+		return err
+	}
+	req.Header.Set("User-Agent", s.HTTPFetcher.UserAgent)
+
+	res, err := s.HTTPFetcher.Client.Do(req)
+	if err != nil {
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetRequest(req)
+			sentry.CaptureException(err)
+		})
+		return err
+	}
+
+	if res.StatusCode != http.StatusOK {
+		err = errors.New(fmt.Sprintf("error while fetching ARIN RPA: %s", res.Status))
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetRequest(req)
+			sentry.CaptureException(err)
+		})
+		return err
+	}
+
+	data, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		sentry.CaptureException(err)
+		return err
+	}
+
+	f, err := os.Create(path)
+	if err != nil {
+		sentry.CaptureException(err)
+		return err
+	}
+	defer f.Close()
+
+	f.Write(data)
+
+	return nil
+}
+
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
@@ -1106,7 +1173,10 @@ func main() {
 		os.Exit(0)
 	}
 
-	lvl, _ := log.ParseLevel(*LogLevel)
+	lvl, err := log.ParseLevel(*LogLevel)
+	if err != nil {
+		log.Fatal(err)
+	}
 	log.SetLevel(lvl)
 
 	sentryDsn := *SentryDSN
@@ -1152,7 +1222,7 @@ func main() {
 	timeoutDur, _ := time.ParseDuration(*RsyncTimeout)
 	timeValidity, _ := time.ParseDuration(*Validity)
 
-	err := os.MkdirAll(*Basepath, os.ModePerm)
+	err = os.MkdirAll(*Basepath, os.ModePerm)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -1201,6 +1271,22 @@ func main() {
 		ROAsTALsCount: make([]ROAsTAL, 0),
 
 		Pprof: *Pprof,
+	}
+
+	if *AcceptRPA {
+		info, err := os.Stat(ArinTALPath)
+		if info != nil && !info.IsDir() {
+			log.Infof("You accepted the ARIN RPA but the file already exists (%s). Skipping download", ArinTALPath)
+		} else if os.IsNotExist(err) {
+			log.Infof("You accepted the ARIN RPA, downloading %s to %s", ArinTALAddress, ArinTALPath)
+			err = s.DownloadARIN(ArinTALAddress, ArinTALPath)
+			if err != nil {
+				log.Error(err)
+			}
+		} else if err != nil {
+			log.Error(err)
+			sentry.CaptureException(err)
+		}
 	}
 
 	if *Sign {
