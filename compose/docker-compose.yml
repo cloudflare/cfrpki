@@ -1,0 +1,48 @@
+version: "3"
+services:
+  prometheus:
+    image: prom/prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+  grafana:
+    image: grafana/grafana
+    ports:
+      - 3000:3000
+    volumes:
+      - ./grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+      - ./grafana-dashboard-provider.yml:/etc/grafana/provisioning/dashboards/provider.yml
+      - ./grafana-dashboard-rpki.json:/var/lib/grafana/dashboards/rpki.json
+  gortr-cf:
+    image: cloudflare/gortr
+    command: -bind :8283 -metrics.addr :8082
+    ports:
+      - 8283:8283
+  gortr:
+    image: cloudflare/gortr
+    command: -bind :8282 -metrics.addr :8080 -cache http://octorpki:8081/output.json -verify.key /public.pem -refresh 60
+    ports:
+      - 8282:8282
+    volumes:
+      - ./public.pem:/public.pem:ro
+  octorpki:
+    image: cloudflare/octorpki
+    # build:
+    #   context: ../
+    command: -http.addr :8081 -output.sign.key /private.pem -tracer=true -pprof=true
+    environment:
+      - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - JAEGER_SERVICE_NAME=octorpki
+      - JAEGER_SAMPLER_TYPE=const
+      - JAEGER_SAMPLER_PARAM=1
+      - JAEGER_REPORTER_LOG_SPANS=true
+      - SENTRY_DSN
+    ports:
+      - 8081:8081
+    volumes:
+      - ./cache:/cache
+      - ./private.pem:/private.pem:ro
+      - ../cmd/octorpki/tals:/tals:ro
+  jaeger:
+    image: jaegertracing/all-in-one:1.18
+    ports:
+      - 16686:16686
