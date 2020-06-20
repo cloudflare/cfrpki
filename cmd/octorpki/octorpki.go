@@ -75,7 +75,7 @@ var (
 	WaitStable = flag.Bool("output.wait", true, "Wait until stable state to create the file (returns 503 when unstable on HTTP)")
 
 	// Serving Options
-	Addr        = flag.String("http.addr", ":8080", "Listening address")
+	Addr        = flag.String("http.addr", ":8081", "Listening address")
 	CacheHeader = flag.Bool("http.cache", true, "Enable cache header")
 	MetricsPath = flag.String("http.metrics", "/metrics", "Prometheus metrics endpoint")
 	InfoPath    = flag.String("http.info", "/infos", "Information URL")
