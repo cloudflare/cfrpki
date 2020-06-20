@@ -9,7 +9,7 @@ jobs:
       env:
         GO111MODULE=on
       script:
-       # - make vet
+        - make vet
         - make test
     # Compile
     - stage: compile
