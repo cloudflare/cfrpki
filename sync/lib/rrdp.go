@@ -165,17 +165,38 @@ func DecodeRRDPBase64(value string) ([]byte, error) {
 func (s *RRDPSystem) FetchRRDP(cbArgs ...interface{}) error {
 	s.fetches = make([]string, 0)
 
+	sHub := sentry.CurrentHub().Clone()
+	sHub.ConfigureScope(func(scope *sentry.Scope) {
+		scope.SetTag("type", "rrdp")
+		scope.SetTag("root", s.Path)
+	})
+
 	if s.Log != nil {
 		s.Log.Infof("RRDP: Downloading root notification %v", s.Path)
 	}
 	data, err := s.Fetcher.GetXML(s.Path)
+
 	if err != nil {
+		sHub.CaptureException(err)
 		return err
 	}
+	sHub.AddBreadcrumb(&sentry.Breadcrumb{
+		Level:    sentry.LevelInfo,
+		Message:  fmt.Sprintf("GET | %s", s.Path),
+		Category: "http",
+	}, nil)
+
 	root, err := ParseRoot(data)
 	if err != nil {
+		sHub.CaptureException(err)
 		return err
 	}
+
+	sHub.AddBreadcrumb(&sentry.Breadcrumb{
+		Level:    sentry.LevelInfo,
+		Message:  "Parse Root",
+		Category: "default",
+	}, nil)
 
 	curSessionID := root.SessionID
 	lastSessionID := s.SessionID
@@ -201,17 +222,31 @@ func (s *RRDPSystem) FetchRRDP(cbArgs ...interface{}) error {
 
 	if lastSerial == 0 || lastSessionID != curSessionID || missingFiles {
 		if s.Log != nil {
-			s.Log.Infof("RRDP: %v Downloading snapshot at: %s", s.Path, root.Snapshot.URI)
+			s.Log.Infof("RRDP: %s downloading snapshot at: %s", s.Path, root.Snapshot.URI)
 		}
 
 		data, err := s.Fetcher.GetXML(root.Snapshot.URI)
 		if err != nil {
+			sHub.CaptureException(err)
 			return err
 		}
+		sHub.AddBreadcrumb(&sentry.Breadcrumb{
+			Level:    sentry.LevelInfo,
+			Message:  fmt.Sprintf("GET | %s", root.Snapshot.URI),
+			Category: "http",
+		}, nil)
+
 		publish, withdraw, err := ParseNode(data)
 		if err != nil {
+			sHub.CaptureException(err)
 			return err
 		}
+
+		sHub.AddBreadcrumb(&sentry.Breadcrumb{
+			Level:    sentry.LevelInfo,
+			Message:  "Parse Node",
+			Category: "default",
+		}, nil)
 
 		if s.Callback != nil {
 			for _, v := range publish {
@@ -236,27 +271,51 @@ func (s *RRDPSystem) FetchRRDP(cbArgs ...interface{}) error {
 			}
 		}
 	} else {
+		msg := fmt.Sprintf("RRDP: %s has %d deltas to parse (cur: %d, last: %d)", s.Path, curSerial-lastSerial, curSerial, lastSerial)
 		if s.Log != nil {
-			s.Log.Infof("RRDP: %v has %d deltas to parse (cur: %v, last: %v)", s.Path, curSerial-lastSerial, curSerial, lastSerial)
+			s.Log.Info(msg)
 		}
 
-		for serial = lastSerial; serial <= curSerial; serial++ {
+		sHub.AddBreadcrumb(&sentry.Breadcrumb{
+			Level:    sentry.LevelInfo,
+			Message:  msg,
+			Category: "default",
+		}, nil)
+
+		tmpCurSerial := lastSerial
+		var processed int
+		for serial = lastSerial + 1; serial <= curSerial && curSerial-lastSerial > 0; serial++ {
 			elNode, ok := deltasMap[serial]
 			if !ok {
-				return errors.New(fmt.Sprintf("Could not find delta with serial %v", serial))
+				return errors.New(fmt.Sprintf("Could not find delta with serial %d", serial))
 			}
 			if s.Log != nil {
-				s.Log.Debugf("RRDP: Fetching serial: %v (%v) for %v", serial, elNode.URI, s.Path)
+				s.Log.Debugf("RRDP: Fetching serial: %d (%s) for %s", serial, elNode.URI, s.Path)
 			}
 			s.fetches = append(s.fetches, elNode.URI)
 			data, err := s.Fetcher.GetXML(elNode.URI)
 			if err != nil {
+				sHub.CaptureException(err)
 				return err
 			}
+
+			sHub.AddBreadcrumb(&sentry.Breadcrumb{
+				Level:    sentry.LevelInfo,
+				Message:  fmt.Sprintf("GET | %s", elNode.URI),
+				Category: "http",
+			}, nil)
+
 			deltaPublish, deltaWithdraw, err := ParseNode(data)
 			if err != nil {
+				sHub.CaptureException(err)
 				return err
 			}
+
+			sHub.AddBreadcrumb(&sentry.Breadcrumb{
+				Level:    sentry.LevelInfo,
+				Message:  "Parse node",
+				Category: "default",
+			}, nil)
 
 			// Before inserting: check hash
 			if s.Callback != nil {
@@ -281,11 +340,15 @@ func (s *RRDPSystem) FetchRRDP(cbArgs ...interface{}) error {
 					}
 				}
 			}
+			tmpCurSerial = serial
+			processed++
 		}
-		curSerial = serial
+		curSerial = tmpCurSerial
+		msg = fmt.Sprintf("RRDP: finished processing notifications (%d). Last serial %d", processed, curSerial)
 		if s.Log != nil {
-			s.Log.Infof("RRDP: finished downloading %v. Last serial %v", s.Path, curSerial)
+			s.Log.Info(msg)
 		}
+		sHub.CaptureMessage(msg)
 	}
 	s.Serial = curSerial
 	s.SessionID = curSessionID
