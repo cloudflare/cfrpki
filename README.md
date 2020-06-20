@@ -30,6 +30,12 @@ Cloudflare develops and uses OctoRPKI. It is the data provider behind
 https://rpki.cloudflare.com/ (including the [rpki.json](https://rpki.cloudflare.com/rpki.json)).
 It is also used in production by multiple networks.
 
+<p align="center">
+  <a href="https://rpki.cloudflare.com/?view=bgp&prefix=1.1.1.0%2F24">
+    <img src="resources/rpki_dashboard.png" alt="Cloudflare RPKI Dashboard" width="600px"/>
+  </a>
+</p>
+
 ### OctoRPKI
 
 OctoRPKI requires bootstrap file in order to fetch the RPKI data.
@@ -153,7 +159,7 @@ from either OctoRPKI or similar validators able to produce a JSON file.
 
 To connect with GoRTR **securely**, you will need to setup a private key.
 
-```
+```bash
 $ openssl ecparam -genkey -name prime256v1 -noout -outform pem > private.pem
 ```
 
@@ -161,14 +167,14 @@ You can force OctoRPKI to use the key by passing `-output.sign.key private.pem`.
 
 Then extract the public key
 
-```
+```bash
 $ openssl ec -in private.pem -pubout -outform pem > public.pem
 ```
 
 If OctoRPKI is running locally using the default port and file (http://localhost:8081/output.json), you can connect GoRTR:
 
-```
-$ ~/go/bin/gortr -verify.key public.pem -cache http://localhost:8081/output.json
+```bash
+$ gortr -verify.key public.pem -cache http://localhost:8081/output.json
 ```
 
 To disable signing, use the following flag on OctoRPKI `-output.sign=false` and `-verify=false` on GoRTR.
