@@ -219,6 +219,7 @@ type Stats struct {
 type state struct {
 	Basepath     string
 	Tals         []*pki.PKIFile
+	TalsFetch    map[string]*librpki.RPKI_TAL
 	TalNames     []string
 	UseManifest  bool
 	RsyncBin     string
@@ -326,20 +327,7 @@ func ExtractRsyncDomain(rsync string) (string, error) {
 	}
 }
 
-func (s *state) ReceiveRRDPFileCallback(main string, url string, path string, data []byte, withdraw bool, snapshot bool, serial int64, args ...interface{}) error {
-	rsync, _ := args[0].(string)
-	if s.RRDPMode == RRDP_MATCH_STRICT && !strings.Contains(path, rsync) {
-		log.Errorf("%v is outside directory %v", path, rsync)
-		return nil
-	}
-	if s.RRDPMode == RRDP_MATCH_RSYNC {
-		newDom, err := ExtractRsyncDomain(rsync)
-		if err == nil && !strings.Contains(path, newDom) {
-			log.Errorf("%v is outside directory %v", path, newDom)
-			return nil
-		}
-	}
-
+func (s *state) WriteRsyncFileOnDisk(path string, data []byte, withdraw bool) error {
 	fPath, err := syncpki.GetDownloadPath(path, true)
 	if err != nil {
 		log.Fatal(err)
@@ -358,6 +346,28 @@ func (s *state) ReceiveRRDPFileCallback(main string, url string, path string, da
 	}
 	f.Write(data)
 	f.Close()
+	return nil
+}
+
+func (s *state) ReceiveRRDPFileCallback(main string, url string, path string, data []byte, withdraw bool, snapshot bool, serial int64, args ...interface{}) error {
+	// Note: similar to the TAL, prepare function that will store those in RAM
+	rsync, _ := args[0].(string)
+	if s.RRDPMode == RRDP_MATCH_STRICT && !strings.Contains(path, rsync) {
+		log.Errorf("%v is outside directory %v", path, rsync)
+		return nil
+	}
+	if s.RRDPMode == RRDP_MATCH_RSYNC {
+		newDom, err := ExtractRsyncDomain(rsync)
+		if err == nil && !strings.Contains(path, newDom) {
+			log.Errorf("%v is outside directory %v", path, newDom)
+			return nil
+		}
+	}
+
+	err := s.WriteRsyncFileOnDisk(path, data, withdraw)
+	if err != nil {
+		return err
+	}
 
 	MetricSIACounts.With(
 		prometheus.Labels{
@@ -669,6 +679,159 @@ func FilterDuplicates(roalist []prefixfile.ROAJson) []prefixfile.ROAJson {
 	return roalistNodup
 }
 
+func setJaegerError(l []interface{}, err error) []interface{} {
+	return append(l, "error", true, "message", err)
+}
+
+// Fetches RFC8630-type TAL
+func (s *state) MainTAL(pSpan opentracing.Span) {
+	tracer := opentracing.GlobalTracer()
+	span := tracer.StartSpan(
+		"tal",
+		opentracing.ChildOf(pSpan.Context()),
+	)
+
+	for path, tal := range s.TalsFetch {
+		tSpan := tracer.StartSpan(
+			"tal-fetch",
+			opentracing.ChildOf(span.Context()),
+		)
+		tSpan.SetTag("tal", path)
+
+		// Try the multiple URLs a TAL can be hosted on
+		var success bool
+		var successUrl string
+
+		sHub := sentry.CurrentHub().Clone()
+
+		for _, uri := range tal.URI {
+			if strings.HasPrefix(uri, "http://") || strings.HasPrefix(uri, "https://") {
+
+				tfSpan := tracer.StartSpan(
+					"tal-fetch-uri",
+					opentracing.ChildOf(tSpan.Context()),
+				)
+				tfSpan.SetTag("uri", uri)
+				//tLogs := []interface{}{"event", "fetch tal", "uri", uri}
+
+				sHub.ConfigureScope(func(scope *sentry.Scope) {
+					scope.SetTag("tal.uri", uri)
+					scope.SetTag("tal.path", path)
+				})
+
+				req, err := http.NewRequest("GET", uri, nil)
+				if err != nil {
+					tfSpan.SetTag("error", true)
+					tfSpan.SetTag("message", err)
+					tfSpan.Finish()
+					log.Errorf("error while trying to fetch: %s: %v", uri, err)
+					continue
+				}
+				req.Header.Set("User-Agent", s.HTTPFetcher.UserAgent)
+
+				sHub.ConfigureScope(func(scope *sentry.Scope) {
+					scope.SetRequest(req)
+				})
+
+				sbc := &sentry.Breadcrumb{
+					Message:  fmt.Sprintf("GET | %s", uri),
+					Category: "http",
+				}
+
+				// maybe add a limit in the client? To avoid downloading huge files (that wouldn't be certs)
+				resp, err := s.HTTPFetcher.Client.Do(req)
+				if err != nil {
+					tfSpan.SetTag("error", true)
+					tfSpan.SetTag("message", err)
+					//tSpan.LogKV(setJaegerError(tLogs, err)...)
+					tfSpan.Finish()
+
+					sbc.Level = sentry.LevelError
+					sHub.AddBreadcrumb(sbc, nil)
+					log.Errorf("error while trying to fetch: %s: %v", uri, err)
+					sHub.CaptureException(err)
+					continue
+				}
+
+				if resp.StatusCode != 200 {
+					msg := fmt.Sprintf("http server replied: %s", resp.Status)
+
+					tfSpan.SetTag("error", true)
+					tfSpan.SetTag("message", msg)
+					tfSpan.Finish()
+
+					sHub.ConfigureScope(func(scope *sentry.Scope) {
+						scope.SetLevel(sentry.LevelError)
+					})
+					sbc.Level = sentry.LevelError
+					sHub.AddBreadcrumb(sbc, nil)
+
+					log.Errorf("http server replied: %s while trying to fetch %s", resp.Status, uri)
+					sHub.CaptureMessage(msg)
+					continue
+				}
+
+				sHub.AddBreadcrumb(sbc, nil)
+
+				// check body / status code
+				data, err := ioutil.ReadAll(resp.Body)
+				tfSpan.LogKV("size", len(data))
+				if err != nil {
+					tfSpan.SetTag("error", true)
+					tfSpan.SetTag("message", err)
+					tfSpan.Finish()
+
+					log.Errorf("error while trying to fetch: %s: %v", uri, err)
+					sHub.CaptureException(err)
+					continue
+				}
+
+				// Plan option to store everything in memory
+				err = s.WriteRsyncFileOnDisk(tal.GetRsyncURI(), data, false)
+				if err != nil {
+					tfSpan.SetTag("error", true)
+					tfSpan.SetTag("message", err)
+					tfSpan.Finish()
+
+					log.Errorf("error while trying to fetch: %s: %v", uri, err)
+					sHub.CaptureException(err)
+					continue
+				}
+
+				//tSpan.LogKV(append(tLogs, "success", true)...)
+				tfSpan.Finish()
+
+				sHub.WithScope(func(scope *sentry.Scope) {
+					scope.SetLevel(sentry.LevelInfo)
+					sHub.CaptureMessage("fetched http tal cert successfully")
+				})
+
+				success = true
+				successUrl = uri
+				break
+
+			}
+		}
+
+		// Fail over to rsync
+		if !success && s.RRDPFailover && tal.HasRsync() {
+			rsync := tal.GetRsyncURI()
+			log.Infof("Root certificate for %s will be downloaded using rsync: %s", path, rsync)
+			s.RsyncFetch[rsync] = time.Now().UTC()
+			tSpan.SetTag("failover-rsync", true)
+		} else if success {
+			log.Infof("Successfully downloaded root certificate for %s at %s", path, successUrl)
+		} else {
+			log.Errorf("Could not download root certificate for %s", path)
+			tSpan.SetTag("error", true)
+		}
+
+		tSpan.Finish()
+	}
+
+	defer span.Finish()
+}
+
 func (s *state) MainValidation(pSpan opentracing.Span) {
 	tracer := opentracing.GlobalTracer()
 	span := tracer.StartSpan(
@@ -711,7 +874,6 @@ func (s *state) MainValidation(pSpan opentracing.Span) {
 
 			//log.Warn("Closed errors")
 		}(sm)
-
 		manager[i].AddInitial([]*pki.PKIFile{tal})
 		s.CountExplore = manager[i].Explore(!s.UseManifest, false)
 
@@ -719,7 +881,10 @@ func (s *state) MainValidation(pSpan opentracing.Span) {
 		var count int
 		for _, obj := range manager[i].Validator.TALs {
 			tal := obj.Resource.(*librpki.RPKI_TAL)
-			s.RsyncFetch[tal.URI] = time.Now().UTC()
+			//s.RsyncFetch[tal.GetURI()] = time.Now().UTC()
+			if !obj.CertTALValid {
+				s.TalsFetch[obj.File.Path] = tal
+			}
 			count++
 		}
 		for _, obj := range manager[i].Validator.ValidObjects {
@@ -1049,6 +1214,7 @@ func main() {
 	s := &state{
 		Basepath:     *Basepath,
 		Tals:         tals,
+		TalsFetch:    make(map[string]*librpki.RPKI_TAL),
 		TalNames:     talNames,
 		UseManifest:  *UseManifest,
 		RsyncTimeout: timeoutDur,
@@ -1161,10 +1327,23 @@ func main() {
 
 		t1 := time.Now().UTC()
 
+		// HTTPs TAL
+		s.MainTAL(span)
+		s.TalsFetch = make(map[string]*librpki.RPKI_TAL) // clear decoded TAL for next iteration
+
+		t2 := time.Now().UTC()
+		MetricOperationTime.With(
+			prometheus.Labels{
+				"type": "tal",
+			}).
+			Observe(float64(t2.Sub(t1).Seconds()))
+
+		t1 = time.Now().UTC()
+
 		// Rsync
 		s.MainRsync(span)
 
-		t2 := time.Now().UTC()
+		t2 = time.Now().UTC()
 		MetricOperationTime.With(
 			prometheus.Labels{
 				"type": "rsync",
@@ -1189,7 +1368,7 @@ func main() {
 		t1 = time.Now().UTC()
 
 		// Reduce
-		s.Stable = !s.MainReduce()
+		s.Stable = !s.MainReduce() && s.Iteration > 1
 
 		t2 = time.Now().UTC()
 		MetricOperationTime.With(

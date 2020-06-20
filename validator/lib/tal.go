@@ -18,10 +18,45 @@ var (
 )
 
 type RPKI_TAL struct {
-	URI       string
+	URI       []string
 	Algorithm x509.PublicKeyAlgorithm
 	OID       asn1.ObjectIdentifier
 	PublicKey interface{}
+}
+
+func (tal *RPKI_TAL) HasRsync() bool {
+	for _, url := range tal.URI {
+		if strings.HasPrefix(url, "rsync://") {
+			return true
+		}
+	}
+	return false
+}
+
+// Returns the rsync URL associated with the TAL certificate.
+// If it does not exist (http only), return a made up URI
+func (tal *RPKI_TAL) GetRsyncURI() string {
+	var rsync string
+	var other string
+	for _, url := range tal.URI {
+		if strings.HasPrefix(url, "rsync://") {
+			rsync = url
+			break
+		}
+		other = url
+	}
+	if rsync == "" {
+		rsync = fmt.Sprintf("rsync://rfc8630/certs/%x.cer", sha1.Sum([]byte(other)))
+	}
+	return rsync
+}
+
+func (tal *RPKI_TAL) GetURI() string {
+	uri := "unknown"
+	if len(tal.URI) > 0 {
+		uri = tal.URI[0]
+	}
+	return uri
 }
 
 func (tal *RPKI_TAL) CheckCertificate(cert *x509.Certificate) bool {
@@ -48,7 +83,7 @@ func DeleteLineEnd(line string) string {
 	return line
 }
 
-func CreateTAL(uri string, pubkey interface{}) (*RPKI_TAL, error) {
+func CreateTAL(uri []string, pubkey interface{}) (*RPKI_TAL, error) {
 	var pubkeyc interface{}
 	switch pubkeyt := pubkey.(type) {
 	case *rsa.PublicKey:
@@ -153,32 +188,39 @@ func EncodeTALSize(tal *RPKI_TAL, split int) ([]byte, error) {
 
 func DecodeTAL(data []byte) (*RPKI_TAL, error) {
 	buf := bytes.NewBufferString(string(data))
-	url, err := buf.ReadString('\n')
-	url = DeleteLineEnd(url)
-	if err != nil {
-		return nil, err
-	}
-	b, err := buf.ReadByte()
-	if err != nil {
-		return nil, err
-	}
-	if b == 0xd {
-		b, err = buf.ReadByte()
+
+	var passedUrl bool
+	var b64 string
+	urls := make([]string, 0)
+	for {
+		line, err := buf.ReadString('\n')
+		if err != nil && err == io.EOF {
+			if line != "" {
+				b64 += line
+			}
+			break
+		}
 		if err != nil {
 			return nil, err
 		}
-	}
+		line = DeleteLineEnd(line)
 
-	b64, err := buf.ReadString('\n')
-	b64 = DeleteLineEnd(b64)
-	for err == nil {
-		var b64tmp string
-		b64tmp, err = buf.ReadString('\n')
-		b64tmp = DeleteLineEnd(b64tmp)
-		b64 += b64tmp
-	}
-	if err != io.EOF {
-		return nil, err
+		if len(line) > 0 && line[0] == 0xd {
+			line = line[1:]
+		}
+
+		if len(line) > 0 && line[0] != '#' && !passedUrl {
+			urls = append(urls, line)
+		}
+
+		if len(line) == 0 {
+			passedUrl = true
+		}
+
+		if len(line) > 0 && passedUrl {
+			b64 += line
+		}
+
 	}
 
 	d, err := base64.StdEncoding.DecodeString(b64)
@@ -200,7 +242,7 @@ func DecodeTAL(data []byte) (*RPKI_TAL, error) {
 	}
 
 	tal := &RPKI_TAL{
-		URI: url,
+		URI: urls,
 		OID: inner.Type.OID,
 	}
 

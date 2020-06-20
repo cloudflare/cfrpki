@@ -13,7 +13,7 @@ import (
 func TestEncodeTAL(t *testing.T) {
 	privkey, _ := rsa.GenerateKey(rand.Reader, 2048)
 
-	tal, err := CreateTAL("rsync://example.com/module/root.cer", privkey.Public())
+	tal, err := CreateTAL([]string{"rsync://example.com/module/root.cer"}, privkey.Public())
 	assert.Nil(t, err)
 
 	_, err = EncodeTAL(tal)
