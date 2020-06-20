@@ -6,7 +6,6 @@ require (
 	github.com/cloudflare/gortr v0.9.5
 	github.com/codahale/hdrhistogram v0.0.0-20161010025455-3a0bb77429bd // indirect
 	github.com/getsentry/sentry-go v0.6.0
-	github.com/go-redis/redis v6.15.2+incompatible
 	github.com/golang/protobuf v1.3.1
 	github.com/google/certificate-transparency-go v1.1.0
 	github.com/kentik/patricia v0.0.0-20190405133149-20eb46c597b3
