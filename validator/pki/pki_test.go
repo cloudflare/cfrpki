@@ -139,7 +139,7 @@ func TestPKI(t *testing.T) {
 	// TAL
 	t.Logf("Creating TAL\n")
 
-	tal, err := librpki.CreateTAL("rsync://lambda/module/root.cer", privkeyRoot.Public())
+	tal, err := librpki.CreateTAL([]string{"rsync://lambda/module/root.cer"}, privkeyRoot.Public())
 	assert.Nil(t, err)
 	data, err := librpki.EncodeTAL(tal)
 	assert.Nil(t, err)
