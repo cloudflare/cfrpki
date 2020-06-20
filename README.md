@@ -1,118 +1,144 @@
 # Cloudflare RPKI Validator Tools and Libraries
 
-CFRPKI is a collection of tools and libraries to perform RPKI relying party software
+[![Build Status](https://travis-ci.org/cloudflare/cfrpki.svg?branch=master)](https://travis-ci.org/cloudflare/cfrpki)
+
+<img align="left" src="resources/octorpki.png" alt="Cloudflare OctoRPKI logo"/>
+
+_cfrpki_ is a collection of tools and libraries to perform RPKI relying party software
 operations.
 
+This is the home of the **OctoRPKI validator**.
+
 To get started with Cloudflare's Relying Party software, go to the section **[OctoRPKI](#octorpki)** 🐙.
+
+</br>
 
 ## Disclaimer
 
 _This software comes with no warranties._
 
-## Components
-
-### Libraries
-
-`sync/lib` can synchronize RRDP and RSYNC repositories.
-
-`sync/api` provides an easy method to scale a validator using an API for storage.
-Includes protobuf and basic functions.
-
-`validator/pki` maintains a certificate store and performs validation.
-
-`validator/lib` decodes RPKI resources.
-
-### Tools
-
-`cmd/localrpki` performs simple validation against files and generate a JSON prefix list.
-
-`cmd/ctrpki` performs simple validation against files and send them to a Certificate Transparency Log.
-
-`cmd/octorpki` perfoms complete validation, with RRDP and Rsync.
-See the section below for more information.
-
-The tools prefixed by `api` are modules that can live independently
-of each other. This is useful for development or setting up a
-distributed setup.
-
 ## Getting started
 
-### Fetching the TALs
+### Introduction
 
-All the TALs files are included in the repo except ARIN.
+A RPKI validator performs cryptographic on the RPKI data provided
+by the Regional Internet Registries (RIR).
+Every network can verify that the routing information data (prefixes and ASN)
+was not tampered with.
 
-You can download the RFC 7730 format at the following address: https://www.arin.net/resources/rpki/tal.html
-and drop it in the `tals/` folder.
+Cloudflare develops and uses OctoRPKI. It is the data provider behind
+https://rpki.cloudflare.com/ (including the [rpki.json](https://rpki.cloudflare.com/rpki.json)).
+It is also used in production by multiple networks.
 
 ### OctoRPKI
 
-This is the standalone tool provided by Cloudflare to perform RPKI Validation.
-It should cover the most common use cases. It is the data provider behind
-https://rpki.cloudflare.com/rpki.json.
+OctoRPKI requires bootstrap file in order to fetch the RPKI data.
+The Trust Anchor Location (TAL) indicates endpoints (rsync/https) hosted
+by Internet Resources holders (IP addresses and ASN), the RIRs .
+By default, _Afrinic, APNIC, LACNIC and RIPE_ TALs are [shipped with this
+software](https://github.com/cloudflare/cfrpki/tree/master/cmd/octorpki/tals). _ARIN_ requires users to agree to a
+[Relying Party Agreement (RPA)](https://www.arin.net/resources/manage/rpki/tal/)
+in order to download the TAL.
+You will need all the five TAL to perform complete RPKI validation
+as they each cover one region.
 
-![OctoRPKI](resources/octorpki.png)
-
-It can be used as a one-off or as an HTTP server (set `-mode server|oneoff`).
-
-The generated ROA list is compatible with [GoRTR](https://github.com/cloudflare/gortr)
-to provide routers the prefixes.
-The list can be signed using ECDSA signatures to be redistributed more securely
-(via a CDN or other caches).
-
-It provides metrics on validation (times, numbers of files) and logs the requests.
-
-All the files will be stored locally.
-The initialization time will vary and use by default RRDP then Rsync (failed RRDP
-will failover to Rsync).
-
-It will keep fetching/revalidating until in a stable state (no new endpoints added).
+This application periodically refreshes the data provided by the RIRs and the delegated organizations.
+It keeps exploring the RPKI repositories until it reaches a stable state (no new endpoints added).
 By default, when unstable, the server will return `503` in order to avoid distributing partial data.
-This feature can be disabled by passing `-output.wait=false`.
 
-The initial startup requires at least 3 iterations which takes around 5 minutes
-(while a refresh takes 2 minutes):
-
+The initial cold start require a few iterations which take 5 to 10 minutes (around 500MB are downloaded).
+A refresh is much faster.
 - Fetching root certificates listed in TAL (via rsync)
 - Fetching repositories listed in the root certificates (RRDP and Rsync)
 - Fetching sub-repositories (National Internet Registries and delegated organizations)
 
-To install, you can either:
+Once it reaches a stable state, it generates a JSON list of Route Object Authorization (ROA).
+A ROA associates an IP prefix with an ASN that is allowed to announce the route via BGP.
+By default it is available on `http://localhost:8081/output.json`.
+The current file size is around 20MB.
 
-- Fetch a binary on the [Releases page](https://github.com/cloudflare/cfrpki/releases)
-- Use `go get`
-- Compile it manually
+To use this tool with your network devices, you need to connect a RTR server
+which will read the JSON.
+It is officially supported by [GoRTR](https://github.com/cloudflare/gortr).
 
-If you choose to use `go get` (your binary will be in: `~/go/bin/octorpki` or in `$GOPATH/bin/octorpki`)
+The list can be signed using ECDSA signatures to be redistributed more securely
+(via a CDN or caches).
+
+Metrics are provided on `/metrics` Prometheus endpoint.
+
+To install the validator, you have multiple options:
+
+- Fetch a binary/packages on the [Releases page](https://github.com/cloudflare/cfrpki/releases)
+- Use Docker
+- Compile it
+
+#### Binaries/packages
+
+First, go to the [Releases](https://github.com/cloudflare/cfrpki/releases) tab,
+download the latest version matching your platform.
+
+To install the Linux deb package and start it:
+```bash
+$ sudo dpkg -i octorpki_1.1.4_amd64.deb
+$ sudo systemctl start octorpki
 ```
-$ go get github.com/cloudflare/cfrpki/cmd/octorpki
+You can get the logs using:
+```bash
+$ sudo journalctl -fu octorpki
 ```
 
-If you choose to compile, after you cloned the repository:
-```
-$ cd cmd/octorpki && go build octorpki.go
+Please note the configuration parameters are in `/etc/default/octorpki`.
+They match the CLI arguments (`$ octorpki -h` to list them).
+
+For instance, if you want to change the port:
+```bash
+sudo echo OCTORPKI_ARGS=-http.addr :8081 | sudo tee /etc/default/octorpki
 ```
 
-To run
+Do not forget to add the ARIN TAL: `/usr/share/octorpki/tals/arin.tal`
 
-```
-$ ./octorpki -h
-```
+If you fetch a standalone binary (eg: `octorpki-v1.1.4-linux-x86_64`),
+by default, it will fetch the TALs in `./tals` folder and use `./cache`
+to store the RPKI repository data.
+Make sure you download put all the TALs in the correct folder.
 
-It is also available as a docker container. Do not forget to add the TAL files in the `tals/` folder.
+Once OctoRPKI completed its first validation, you can access the 
+ROAs list at the following address: http://localhost:8081/output.json.
 
-```
+By default, the validator is configured to sign the output.
+We advise that you generate an ECDSA key. Follow the instructions in the
+[GoRTR](#GoRTR) section.
+You can disable the signature by passing `-output.sign=false` to the program.
+
+#### Docker
+
+OctoRPKI is avaialble a docker container. Add the TAL files in the `tals/` folder.
+
+```bash
 $ mkdir tals && mkdir cache && touch cache/rrdp.json
 $ chmod 770 -R tals && chmod 770 -R cache && chmod 770 cache/rrdp.json
-$ docker run -ti --net=host -v $PWD/tals:/tals -v $PWD/cache:/cache -p 8080:8080 cloudflare/octorpki
+$ docker run -ti --net=host -v $PWD/tals:/tals -v $PWD/cache:/cache -p 8081:8081 cloudflare/octorpki
 ```
 
-Depending on your Docker configuration, you may need to set `--net=host` and set permissions for the files in order to avoid some errors.
+Depending on your Docker configuration, you may need to specify `--net=host` 
+and set permissions for the files in order to avoid errors.
 
 Using the default settings, you can access the generated ROAs list on
-http://localhost:8080/output.json.
-Statistics are available on http://localhost:8080/infos in JSON.
-You can also plug a Prometheus server on the metrics endpoint http://localhost:8080/metrics.
-The current state of RRDP fetch will be stored in cache/rrdp.json file.
+http://localhost:8081/output.json.
+
+#### Compile
+
+The source of OctoRPKI is in the folder `cmd/octorpki`.
+Make sure you have the [Go toolkit installed](https://golang.org/doc/install).
+
+You can then build using `go build`
+```
+$ cd cmd/octorpki && go build
+```
+The binary is now available in the same directory.
+
+Have a look at the Makefile for more targets
+to compile or generate a Docker image.
 
 #### [GoRTR](https://github.com/cloudflare/gortr)
 
@@ -123,7 +149,7 @@ OctoRPKI does not embed a RTR server. Since generating list of ROAs takes a lot 
 it was designed separate the distribution of files from the cryptographic operations.
 
 [GoRTR](https://github.com/cloudflare/gortr) was created by Cloudflare to use a list of ROAs
-from either OctoRPKI or similar tools able to produce a JSON file.
+from either OctoRPKI or similar validators able to produce a JSON file.
 
 To connect with GoRTR **securely**, you will need to setup a private key.
 
@@ -139,54 +165,35 @@ Then extract the public key
 $ openssl ec -in private.pem -pubout -outform pem > public.pem
 ```
 
-If OctoRPKI is running locally using the default port and file (http://localhost:8080/output.json), you can connect GoRTR:
+If OctoRPKI is running locally using the default port and file (http://localhost:8081/output.json), you can connect GoRTR:
 
 ```
-$ ~/go/bin/gortr -verify.key public.pem -cache http://localhost:8080/output.json
+$ ~/go/bin/gortr -verify.key public.pem -cache http://localhost:8081/output.json
 ```
 
 To disable signing, use the following flag on OctoRPKI `-output.sign=false` and `-verify=false` on GoRTR.
 
-### Connect your routers and start filtering
+The [repository's page](https://github.com/cloudflare/gortr) gives more details on how to configure network devices to use GoRTR.
 
-You can then connect your router to GoRTR using the RPKI to Router Protocol (RTR).
+## Develop
 
-Juniper instructions are available on the [project's page](https://github.com/cloudflare/gortr#configure-on-juniper).
+### Libraries
 
-### Developing and distributed use cases
+`ov` origin validation library. You can pass prefixes and it will match against ROAs.
 
-To develop or implement RPKI features, it is advised to
-use the API which will store the certificates in a Redis database.
+`sync/lib` can synchronize RRDP and RSYNC repositories.
 
-Other use-cases include being able to run multiple validators
-on the same data and without relying on filesystem storage (limitation caused by Rsync).
+`validator/pki` maintains a certificate store and performs validation.
 
-Start docker-compose:
+`validator/lib` decode and encode RPKI resources.
 
-```
-$ cd cmd/api/
-$ docker-compose up
-```
+### Applications
 
-Start the API:
+`cmd/localrpki` performs validation against locally stored files
+and generate a JSON prefix list.
 
-```
-$ cd cmd/api/
-$ go run api.go
-```
+`cmd/ctrpki` performs simple validation against files and send them
+to a [Certificate Transparency Log](https://ct.cloudflare.com/logs/cirrus).
 
-Start the components to synchronize the files:
-
-```
-$ cd cmd/api-rsync && go run rsync.go
-$ cd cmd/api-rrdp && go run rrdp.go
-```
-
-Finally, start the Validator
-
-```
-$ cd cmd/api-validator && go run validator.go
-```
-
-It will work iteratively. Each validation may bring more endpoints to synchronize
-until a stable state.
+`cmd/octorpki` complete validator software, with RRDP and rsync.
+See the section below for more information.
