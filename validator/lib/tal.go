@@ -183,7 +183,7 @@ func EncodeTALSize(tal *RPKI_TAL, split int) ([]byte, error) {
 		key = strings.Join(keySplit, "\n")
 	}
 
-	return []byte(fmt.Sprintf("%v\n\n%v", tal.URI, key)), nil
+	return []byte(fmt.Sprintf("%s\n\n%s", strings.Join(tal.URI, "\n"), key)), nil
 }
 
 func DecodeTAL(data []byte) (*RPKI_TAL, error) {
