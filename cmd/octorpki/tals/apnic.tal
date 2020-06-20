@@ -1,4 +1,5 @@
 rsync://rpki.apnic.net/repository/apnic-rpki-root-iana-origin.cer
+http://rpki.apnic.net/repository/apnic-rpki-root-iana-origin.cer
 
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAx9RWSL61YAAYumEiU8z8
 qH2ETVIL01ilxZlzIL9JYSORMN5Cmtf8V2JblIealSqgOTGjvSjEsiV73s67zYQI

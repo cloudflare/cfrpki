@@ -45,6 +45,8 @@ type Resource struct {
 	File     *PKIFile
 	Resource interface{}
 	Childs   []*Resource
+
+	CertTALValid bool // currently used for TALs: indicates the child is valid and does not need to be fetched again
 }
 
 func (res *Resource) GetIdentifier() (bool, []byte) {
@@ -279,6 +281,7 @@ func (v *Validator) AddResource(pkifile *PKIFile, data []byte) (bool, []*PKIFile
 				if !talValidation {
 					return false, nil, nil, errors.New("Certificate was not validated against TAL")
 				}
+				v.TALs[pkifile.Path].CertTALValid = true // indicates that we can skip downloading
 			}
 		}
 
@@ -368,7 +371,7 @@ func (v *Validator) InvalidateObject(keyid []byte) {
 }
 
 func (v *Validator) AddTAL(tal *librpki.RPKI_TAL) ([]*PKIFile, *Resource, error) {
-	uri := tal.URI
+	uri := tal.GetRsyncURI()
 	files := []*PKIFile{
 		&PKIFile{
 			Type:  TYPE_CER,
@@ -732,6 +735,7 @@ func (sm *SimpleManager) AddInitial(fileList []*PKIFile) {
 func (sm *SimpleManager) ExploreAdd(file *PKIFile, data *SeekFile, addInvalidChilds bool) {
 	sm.Explored[file.ComputePath()] = true
 	valid, subFiles, res, err := sm.Validator.AddResource(file, data.Data)
+
 	if err != nil {
 		if sm.Log != nil {
 			//sm.Log.Errorf("Error adding Resource %v: %v", file.Path, err)
