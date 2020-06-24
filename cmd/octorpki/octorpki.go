@@ -233,8 +233,9 @@ type state struct {
 	PrevRepos    map[string]time.Time
 	CurrentRepos map[string]time.Time
 
-	RsyncFetch map[string]string
-	RRDPFetch  map[string]string
+	RsyncFetch      map[string]string
+	RRDPFetch       map[string]string
+	RRDPFetchDomain map[string]string
 
 	RRDPInfo     map[string]RRDPInfo
 	RRDPFailover bool
@@ -406,7 +407,7 @@ func (s *state) MainRRDP(pSpan opentracing.Span) {
 
 			Log: log.StandardLogger(),
 		}
-		err := rrdp.FetchRRDP(rsync)
+		err := rrdp.FetchRRDP(s.RRDPFetchDomain[vv])
 		t2 := time.Now().UTC()
 		if err != nil {
 			rSpan.SetTag("error", true)
@@ -840,18 +841,19 @@ func (s *state) MainValidation(pSpan opentracing.Span) {
 						RRDPGN = gn
 					}
 				}
-				gnExtracted, err := syncpki.ExtractRsyncDomainModule(RsyncGN)
+				gnExtracted, gnExtractedDomain, err := syncpki.ExtractRsyncDomainModule(RsyncGN)
 				if err != nil {
 					log.Errorf("Could not add cert rsync %s due to %v", RsyncGN, err)
 					continue
 				}
 
 				if hasRRDP {
-					prev, ok := s.RRDPFetch[RRDPGN]
-					if ok && prev != gnExtracted {
-						log.Errorf("rrdp %s tries to override %s with %s", RRDPGN, prev, gnExtracted)
+					prev, ok := s.RRDPFetchDomain[RRDPGN]
+					if ok && prev != gnExtractedDomain {
+						log.Errorf("rrdp %s tries to override %s with %s", RRDPGN, prev, gnExtractedDomain)
 						continue
 					}
+					s.RRDPFetchDomain[RRDPGN] = gnExtractedDomain
 					s.RRDPFetch[RRDPGN] = gnExtracted
 				}
 				s.RsyncFetch[gnExtracted] = RRDPGN
@@ -1180,8 +1182,9 @@ func main() {
 		PrevRepos:    make(map[string]time.Time),
 		CurrentRepos: make(map[string]time.Time),
 
-		RsyncFetch: make(map[string]string),
-		RRDPFetch:  make(map[string]string),
+		RsyncFetch:      make(map[string]string),
+		RRDPFetch:       make(map[string]string),
+		RRDPFetchDomain: make(map[string]string),
 
 		Fetcher: syncpki.NewLocalFetch(
 			map[string]string{
