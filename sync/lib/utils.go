@@ -20,15 +20,15 @@ type SubMap struct {
 	Count   int
 }
 
-func ExtractRsyncDomainModule(rsync string) (string, error) {
+func ExtractRsyncDomainModule(rsync string) (string, string, error) {
 	if len(rsync) > len("rsync://") {
 		rsyncDomain := strings.Split(rsync[8:], "/")
 		if len(rsyncDomain) < 2 {
-			return "", errors.New("rsync url does not contain module")
+			return "", "", errors.New("rsync url does not contain module")
 		}
-		return fmt.Sprintf("rsync://%s/%s", rsyncDomain[0], rsyncDomain[1]), nil
+		return fmt.Sprintf("rsync://%s/%s", rsyncDomain[0], rsyncDomain[1]), fmt.Sprintf("rsync://%s/", rsyncDomain[0]), nil
 	} else {
-		return "", errors.New("Wrong size")
+		return "", "", errors.New("Wrong size")
 	}
 }
 
