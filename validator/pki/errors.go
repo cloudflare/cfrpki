@@ -19,6 +19,7 @@ const (
 	ERROR_FILE
 	ERROR_CERTIFICATE_MANIFEST
 	ERROR_CERTIFICATE_HASH
+	ERROR_CERTIFICATE_CRL
 )
 
 type stack []uintptr
@@ -35,6 +36,7 @@ var (
 		ERROR_FILE:                   "file",
 		ERROR_CERTIFICATE_MANIFEST:   "manifest",
 		ERROR_CERTIFICATE_HASH:       "hash",
+		ERROR_CERTIFICATE_CRL:        "crl",
 	}
 )
 
@@ -253,6 +255,17 @@ func NewCertificateErrorManifestRevocation(cert *librpki.RPKICertificate, err er
 		InnerErr:    err,
 		InnerFile:   fileAffected,
 		Message:     "revocation due to manifest issue",
+		Stack:       callers(),
+	}
+}
+
+func NewCertificateErrorCRLRevocation(cert *librpki.RPKICertificate, err error, fileCrl *PKIFile, fileAffected *PKIFile) *CertificateError {
+	return &CertificateError{
+		EType:       ERROR_CERTIFICATE_CRL,
+		Certificate: cert,
+		InnerErr:    err,
+		InnerFile:   fileAffected,
+		Message:     "revocation due to crl issue",
 		Stack:       callers(),
 	}
 }

@@ -192,6 +192,9 @@ type Validator struct {
 	ValidObjects map[string]*Resource
 	Objects      map[string]*Resource
 
+	// Key by path
+	ObjectsPath map[string]*Resource
+
 	CertsSerial map[string]*Resource
 	Revoked     map[string]bool
 
@@ -218,6 +221,8 @@ func NewValidator() *Validator {
 
 		ValidObjects: make(map[string]*Resource),
 		Objects:      make(map[string]*Resource),
+
+		ObjectsPath: make(map[string]*Resource),
 
 		CertsSerial: make(map[string]*Resource),
 		Revoked:     make(map[string]bool),
@@ -309,6 +314,8 @@ func (v *Validator) AddResource(pkifile *PKIFile, data []byte) (bool, []*PKIFile
 		for _, pc := range pathCert {
 			pc.Parent = pkifile
 		}
+
+		v.ObjectsPath[pkifile.Path] = res
 		return valid, pathCert, res, err
 	case TYPE_ROA:
 		roa, err := v.DecoderConfig.DecodeROA(data)
@@ -320,6 +327,8 @@ func (v *Validator) AddResource(pkifile *PKIFile, data []byte) (bool, []*PKIFile
 			return valid, nil, res, errors.New(fmt.Sprintf("Resource is empty: %v", err))
 		}
 		res.File = pkifile
+
+		v.ObjectsPath[pkifile.Path] = res
 		return valid, nil, res, err
 	case TYPE_MFT:
 		mft, err := v.DecoderConfig.DecodeManifest(data)
@@ -335,6 +344,8 @@ func (v *Validator) AddResource(pkifile *PKIFile, data []byte) (bool, []*PKIFile
 		for _, pc := range pathCert {
 			pc.Parent = pkifile
 		}
+
+		v.ObjectsPath[pkifile.Path] = res
 		return valid, pathCert, res, err
 	case TYPE_CRL:
 		// https://tools.ietf.org/html/rfc5280
@@ -343,10 +354,15 @@ func (v *Validator) AddResource(pkifile *PKIFile, data []byte) (bool, []*PKIFile
 			return false, nil, nil, err
 		}
 		valid, res, err := v.AddCRL(crl)
+		if pkifile.Parent.Parent.Path != res.Parent.File.Path {
+			return false, nil, nil, errors.New(fmt.Sprintf("CRL %s does not match with the parent %s", pkifile.Path, pkifile.Parent.Parent.Path))
+		}
 		if res == nil {
 			return valid, nil, res, errors.New(fmt.Sprintf("Resource is empty: %v", err))
 		}
 		res.File = pkifile
+
+		v.ObjectsPath[pkifile.Path] = res
 		return valid, nil, res, err
 	}
 	return false, nil, nil, errors.New("Unknown file type")
@@ -773,6 +789,28 @@ func (sm *SimpleManager) InvalidateManifestParent(file *PKIFile, mftError error)
 		}
 	}
 }
+
+func (sm *SimpleManager) InvalidateCRLParent(file *PKIFile, crlError error) {
+	if file.Parent.Type == TYPE_CRL && file.Parent.Parent != nil && file.Parent.Parent.Type == TYPE_CER {
+		res, ok := sm.Validator.ObjectsPath[file.Parent.Parent.Path]
+
+		if ok && res != nil && res.Resource != nil {
+			cert, ok := res.Resource.(*librpki.RPKICertificate)
+			if ok {
+				sm.Validator.InvalidateObject(cert.Certificate.SubjectKeyId)
+
+				err := NewCertificateErrorCRLRevocation(cert, crlError, file.Parent, file)
+				sm.reportErrorFile(err, file.Parent.Parent, nil)
+
+			} else {
+				sm.Log.Debugf("Could not invalidate certificate because incorrect resource")
+			}
+		} else {
+			sm.Log.Debugf("Could not invalidate certificate because not found in list")
+		}
+	}
+}
+
 func (sm *SimpleManager) ExploreAdd(file *PKIFile, data *SeekFile, addInvalidChilds bool) {
 	sm.Explored[file.ComputePath()] = true
 	valid, subFiles, res, err := sm.Validator.AddResource(file, data.Data)
@@ -781,13 +819,13 @@ func (sm *SimpleManager) ExploreAdd(file *PKIFile, data *SeekFile, addInvalidChi
 		if sm.StrictManifests {
 			// will also invalidate when ROA is expired
 			sm.InvalidateManifestParent(file, err)
-			//sm.reportErrorFile(err, file, data)
 		}
 	}
 
 	if err != nil {
+		sm.InvalidateCRLParent(file, err)
+
 		if sm.Log != nil {
-			//sm.Log.Errorf("Error adding Resource %v: %v", file.Path, err)
 			sm.reportErrorFile(err, file, data)
 		}
 	}
@@ -844,6 +882,8 @@ func (sm *SimpleManager) Explore(notMFT bool, addInvalidChilds bool) int {
 
 			if err != nil {
 				sm.reportErrorFile(err, file, data)
+
+				sm.InvalidateCRLParent(file, err)
 			} else if data != nil {
 				sm.ExploreAdd(file, data, addInvalidChilds)
 				hasMore = sm.HasMore()
