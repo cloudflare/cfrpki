@@ -6,12 +6,25 @@ import (
 	"io/ioutil"
 	"os"
 	"strings"
+	"time"
 )
 
 type LocalFetch struct {
-	MapDirectory  map[string]string
-	Log           Logger
-	PathAvailable []string
+	MapDirectory map[string]string
+	Log          Logger
+	repositories map[string]time.Time
+}
+
+func NewLocalFetch(mapDirectory map[string]string, log Logger) *LocalFetch {
+	return &LocalFetch{
+		MapDirectory: mapDirectory,
+		Log:          log,
+		repositories: make(map[string]time.Time),
+	}
+}
+
+func (s *LocalFetch) SetRepositories(repositories map[string]time.Time) {
+	s.repositories = repositories
 }
 
 func ReplaceString(pathRep string, replace map[string]string) string {
@@ -28,15 +41,16 @@ func ReplacePath(file *pki.PKIFile, replace map[string]string) string {
 }
 
 func FetchFile(path string, conv bool) ([]byte, error) {
+
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
+	defer f.Close()
 	data, err := ioutil.ReadAll(f)
 	if err != nil {
 		return data, err
 	}
-	f.Close()
 
 	if conv {
 		data, err = librpki.BER2DER(data)
@@ -69,20 +83,20 @@ func (s *LocalFetch) GetFileConv(file *pki.PKIFile, convert bool) (*pki.SeekFile
 		s.Log.Debugf("Fetching %v->%v", file.Path, newPath)
 	}
 	data, err := FetchFile(newPath, convert)
-	if err != nil {
-		var contained bool
-		for _, pa := range s.PathAvailable {
-			contained = strings.Contains(file.Path, pa)
-			if contained {
-				break
-			}
+	if err != nil && os.IsNotExist(err) {
+
+		rsyncBase, errExtract := ExtractRsyncDomainModule(file.Path)
+		if errExtract != nil && s.Log != nil {
+			s.Log.Errorf("error exracting rsync of %s: %v", file.Path, errExtract)
 		}
-		if !contained {
+
+		if _, ok := s.repositories[rsyncBase]; !ok {
 			if s.Log != nil {
-				s.Log.Infof("Got %v but repository not yet synchronized", err)
+				s.Log.Debugf("Got %v but repository not yet synchronized", err)
 			}
 			return nil, nil
 		}
+
 	}
 	return &pki.SeekFile{
 		File: file.Path,

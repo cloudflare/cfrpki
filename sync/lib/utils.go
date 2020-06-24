@@ -1,6 +1,8 @@
 package syncpki
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -16,6 +18,18 @@ type Logger interface {
 type SubMap struct {
 	Subitem map[string]SubMap
 	Count   int
+}
+
+func ExtractRsyncDomainModule(rsync string) (string, error) {
+	if len(rsync) > len("rsync://") {
+		rsyncDomain := strings.Split(rsync[8:], "/")
+		if len(rsyncDomain) < 2 {
+			return "", errors.New("rsync url does not contain module")
+		}
+		return fmt.Sprintf("rsync://%s/%s", rsyncDomain[0], rsyncDomain[1]), nil
+	} else {
+		return "", errors.New("Wrong size")
+	}
 }
 
 func AddInMap(item string, m map[string]SubMap) {

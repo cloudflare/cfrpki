@@ -41,12 +41,6 @@ import (
 	"net/http/pprof"
 )
 
-const (
-	RRDP_NO_MATCH = iota
-	RRDP_MATCH_RSYNC
-	RRDP_MATCH_STRICT
-)
-
 var (
 	version    = ""
 	buildinfos = ""
@@ -65,10 +59,8 @@ var (
 	RsyncBin     = flag.String("rsync.bin", DefaultBin(), "The rsync binary to use")
 
 	// RRDP Options
-	RRDP     = flag.Bool("rrdp", true, "Enable RRDP fetching")
-	RRDPFile = flag.String("rrdp.file", "cache/rrdp.json", "Save RRDP state")
-	RRDPMode = flag.Int("rrdp.mode", RRDP_MATCH_RSYNC, fmt.Sprintf("RRDP security mode (%v = no check, %v = match rsync domain, %v = match path)",
-		RRDP_NO_MATCH, RRDP_MATCH_RSYNC, RRDP_MATCH_STRICT))
+	RRDP         = flag.Bool("rrdp", true, "Enable RRDP fetching")
+	RRDPFile     = flag.String("rrdp.file", "cache/rrdp.json", "Save RRDP state")
 	RRDPFailover = flag.Bool("rrdp.failover", true, "Failover to rsync when RRDP fails")
 
 	Mode       = flag.String("mode", "server", "Select output mode (server/oneoff)")
@@ -225,8 +217,7 @@ type state struct {
 	RsyncBin     string
 	RsyncTimeout time.Duration
 
-	Mode     string
-	RRDPMode int
+	Mode string
 
 	Validity     time.Duration
 	LastComputed time.Time
@@ -239,12 +230,11 @@ type state struct {
 	Fetcher     *syncpki.LocalFetch
 	HTTPFetcher *syncpki.HTTPFetcher
 
-	RsyncFetch    map[string]time.Time
-	RRDPFetch     map[string][]string
-	FailoverRsync []string
+	PrevRepos    map[string]time.Time
+	CurrentRepos map[string]time.Time
 
-	FinalRsyncFetch map[string]bool
-	FinalRRDPFetch  map[string][]string
+	RsyncFetch map[string]string
+	RRDPFetch  map[string]string
 
 	RRDPInfo     map[string]RRDPInfo
 	RRDPFailover bool
@@ -264,58 +254,24 @@ type state struct {
 }
 
 func (s *state) MainReduce() bool {
-	previousRsyncFetch := s.FinalRsyncFetch
-	previousRRDPFetch := s.FinalRRDPFetch
-
-	s.FinalRsyncFetch = make(map[string]bool)
-	s.FinalRRDPFetch = make(map[string][]string)
-
-	rsyncMap := make(map[string]syncpki.SubMap)
-	for k, _ := range s.RsyncFetch {
-		syncpki.AddInMap(k, rsyncMap)
-	}
-	rsyncRedMap := syncpki.ReduceMap(rsyncMap)
-
-	for _, v := range rsyncRedMap {
-		s.FinalRsyncFetch[v] = true
-	}
-
-	for k, v := range s.RRDPFetch {
-		rsyncMap = make(map[string]syncpki.SubMap)
-		for _, vv := range v {
-			syncpki.AddInMap(vv, rsyncMap)
-		}
-		rsyncRedMap = syncpki.ReduceMap(rsyncMap)
-		for _, vv := range rsyncRedMap {
-			if _, ok := s.FinalRRDPFetch[k]; !ok {
-				s.FinalRRDPFetch[vv] = make([]string, 0)
-			}
-
-			s.FinalRRDPFetch[vv] = append(s.FinalRRDPFetch[vv], k)
-
-			if _, ok := s.FinalRsyncFetch[vv]; ok {
-				log.Debugf("Deleting %v from rsync because there is an rrdp\n", vv)
-				delete(s.FinalRsyncFetch, vv)
-			}
+	var hasChanged bool
+	for rsync, ts := range s.CurrentRepos {
+		if _, ok := s.PrevRepos[rsync]; !ok {
+			s.PrevRepos[rsync] = ts
+			hasChanged = true
+			log.Debugf("Repository %s has appeared at %v", rsync, ts)
 		}
 	}
 
-	if len(s.FinalRRDPFetch) != len(previousRRDPFetch) ||
-		len(s.FinalRsyncFetch) != len(previousRsyncFetch) {
-		return true
-	}
-	for v, _ := range s.FinalRsyncFetch {
-		if _, ok := previousRsyncFetch[v]; !ok {
-			return true
-		}
-	}
-	for v, _ := range s.FinalRRDPFetch {
-		if _, ok := previousRRDPFetch[v]; !ok {
-			return true
-		}
+	// Init deletion of folder if missing from current
+
+	s.Fetcher.SetRepositories(s.CurrentRepos)
+
+	if !hasChanged && len(s.PrevRepos) != len(s.CurrentRepos) {
+		hasChanged = true
 	}
 
-	return false
+	return hasChanged
 }
 
 func ExtractRsyncDomain(rsync string) (string, error) {
@@ -350,16 +306,10 @@ func (s *state) WriteRsyncFileOnDisk(path string, data []byte, withdraw bool) er
 }
 
 func (s *state) ReceiveRRDPFileCallback(main string, url string, path string, data []byte, withdraw bool, snapshot bool, serial int64, args ...interface{}) error {
-	// Note: similar to the TAL, prepare function that will store those in RAM
-	rsync, _ := args[0].(string)
-	if s.RRDPMode == RRDP_MATCH_STRICT && !strings.Contains(path, rsync) {
-		log.Errorf("%v is outside directory %v", path, rsync)
-		return nil
-	}
-	if s.RRDPMode == RRDP_MATCH_RSYNC {
-		newDom, err := ExtractRsyncDomain(rsync)
-		if err == nil && !strings.Contains(path, newDom) {
-			log.Errorf("%v is outside directory %v", path, newDom)
+	if len(args) > 0 {
+		rsync, ok := args[0].(string)
+		if ok && !strings.Contains(path, rsync) {
+			log.Errorf("rrdp: %s is outside directory %s", path, rsync)
 			return nil
 		}
 	}
@@ -417,127 +367,122 @@ func (s *state) MainRRDP(pSpan opentracing.Span) {
 	)
 	defer span.Finish()
 
-	for rsync, v := range s.FinalRRDPFetch {
-		for _, vv := range v {
-			rSpan := tracer.StartSpan(
-				"sync",
-				opentracing.ChildOf(span.Context()),
-			)
-			rSpan.SetTag("rrdp", vv)
-			rSpan.SetTag("rsync", rsync)
-			rSpan.SetTag("type", "rrdp")
-			log.Infof("RRDP sync %v", vv)
+	for vv, rsync := range s.RRDPFetch {
+		rSpan := tracer.StartSpan(
+			"sync",
+			opentracing.ChildOf(span.Context()),
+		)
+		rSpan.SetTag("rrdp", vv)
+		rSpan.SetTag("rsync", rsync)
+		rSpan.SetTag("type", "rrdp")
+		log.Infof("RRDP sync %v", vv)
 
-			rrdpid := vv
-			if s.RRDPMode == RRDP_MATCH_STRICT {
-				rrdpid = fmt.Sprintf("%v|%v", rsync, vv)
-			} else if s.RRDPMode == RRDP_MATCH_RSYNC {
-				newDom, _ := ExtractRsyncDomain(rsync)
-				rrdpid = fmt.Sprintf("%v|%v", newDom, vv)
-			}
+		rrdpid := rsync
 
-			path := vv
-			info := s.RRDPInfo[rrdpid]
+		path := vv
+		info := s.RRDPInfo[rrdpid]
 
-			MetricSIACounts.With(
-				prometheus.Labels{
-					"address": vv,
-					"type":    "rrdp",
-				}).Set(0)
+		MetricSIACounts.With(
+			prometheus.Labels{
+				"address": vv,
+				"type":    "rrdp",
+			}).Set(0)
 
-			tmpStats := s.RRDPStats[vv]
-			tmpStats.URI = vv
-			tmpStats.Iteration++
-			tmpStats.Count = 0
-			s.RRDPStats[vv] = tmpStats
-			t1 := time.Now().UTC()
+		tmpStats := s.RRDPStats[vv]
+		tmpStats.URI = vv
+		tmpStats.Iteration++
+		tmpStats.Count = 0
+		s.RRDPStats[vv] = tmpStats
+		t1 := time.Now().UTC()
 
-			rrdp := &syncpki.RRDPSystem{
-				Callback: s.ReceiveRRDPFileCallback,
+		rrdp := &syncpki.RRDPSystem{
+			Callback: s.ReceiveRRDPFileCallback,
 
-				Path:    path,
-				Fetcher: s.HTTPFetcher,
+			Path:    path,
+			Fetcher: s.HTTPFetcher,
 
-				SessionID: info.SessionID,
-				Serial:    info.Serial,
+			SessionID: info.SessionID,
+			Serial:    info.Serial,
 
-				Log: log.StandardLogger(),
-			}
-			err := rrdp.FetchRRDP(rsync)
-			t2 := time.Now().UTC()
-			if err != nil {
-				rSpan.SetTag("error", true)
+			Log: log.StandardLogger(),
+		}
+		err := rrdp.FetchRRDP(rsync)
+		t2 := time.Now().UTC()
+		if err != nil {
+			rSpan.SetTag("error", true)
 
-				log.Errorf("Error when processing %v (for %v): %v. Will add to rsync.", path, rsync, err)
-				sentry.WithScope(func(scope *sentry.Scope) {
-					if errC, ok := err.(interface{ SetURL(string, string) }); ok {
-						errC.SetURL(vv, rsync)
-					}
-					if errC, ok := err.(interface{ SetSentryScope(*sentry.Scope) }); ok {
-						errC.SetSentryScope(scope)
-					}
-					rrdp.SetSentryScope(scope)
-					scope.SetTag("Rsync", rsync)
-					scope.SetTag("RRDP", vv)
-					sentry.CaptureException(err)
-				})
-
-				if s.RRDPFailover {
-					rSpan.LogKV("event", "rrdp failure", "type", "failover to rsync", "message", err)
-					s.FailoverRsync = append(s.FailoverRsync, rsync)
-				} else {
-					rSpan.LogKV("event", "rrdp failure", "type", "skipping failover to rsync", "message", err)
-				}
-
-				MetricRRDPErrors.With(
-					prometheus.Labels{
-						"address": vv,
-					}).Inc()
-
-				tmpStats = s.RRDPStats[vv]
-				tmpStats.Errors++
-				tmpStats.LastFetchError = int(time.Now().UTC().UnixNano() / 1000000000)
-				tmpStats.LastError = fmt.Sprint(err)
-				tmpStats.Duration = t2.Sub(t1).Seconds()
-				s.RRDPStats[vv] = tmpStats
-				rSpan.Finish()
-				continue
-			}
-
-			rSpan.LogKV("event", "rrdp", "type", "success", "message", "rrdp successfully fetched")
 			sentry.WithScope(func(scope *sentry.Scope) {
-				scope.SetLevel(sentry.LevelInfo)
+				if errC, ok := err.(interface{ SetURL(string, string) }); ok {
+					errC.SetURL(vv, rsync)
+				}
+				if errC, ok := err.(interface{ SetSentryScope(*sentry.Scope) }); ok {
+					errC.SetSentryScope(scope)
+				}
+				rrdp.SetSentryScope(scope)
 				scope.SetTag("Rsync", rsync)
 				scope.SetTag("RRDP", vv)
-				rrdp.SetSentryScope(scope)
-				sentry.CaptureMessage("fetched rrdp successfully")
+				sentry.CaptureException(err)
 			})
 
-			rSpan.Finish()
-			s.Fetcher.PathAvailable = append(s.Fetcher.PathAvailable, rsync)
-			MetricRRDPSerial.With(
+			if s.RRDPFailover {
+				log.Errorf("Error when processing %v (for %v): %v. Will add to rsync.", path, rsync, err)
+				rSpan.LogKV("event", "rrdp failure", "type", "failover to rsync", "message", err)
+			} else {
+				log.Errorf("Error when processing %v (for %v): %v.Skipping failover to rsync.", path, rsync, err)
+				rSpan.LogKV("event", "rrdp failure", "type", "skipping failover to rsync", "message", err)
+				delete(s.RsyncFetch, rsync)
+			}
+
+			MetricRRDPErrors.With(
 				prometheus.Labels{
 					"address": vv,
-				}).Set(float64(rrdp.Serial))
-			lastFetch := time.Now().UTC().UnixNano() / 1000000000
-			MetricLastFetch.With(
-				prometheus.Labels{
-					"address": vv,
-					"type":    "rrdp",
-				}).Set(float64(lastFetch))
+				}).Inc()
+
 			tmpStats = s.RRDPStats[vv]
-			tmpStats.LastFetch = int(lastFetch)
-			tmpStats.RRDPSerial = rrdp.Serial
-			tmpStats.RRDPSessionID = rrdp.SessionID
+			tmpStats.Errors++
+			tmpStats.LastFetchError = int(time.Now().UTC().UnixNano() / 1000000000)
+			tmpStats.LastError = fmt.Sprint(err)
 			tmpStats.Duration = t2.Sub(t1).Seconds()
 			s.RRDPStats[vv] = tmpStats
+			rSpan.Finish()
+			continue
+		} else {
+			log.Debugf("Success fetching %s, removing rsync %s", vv, rsync)
+			delete(s.RsyncFetch, rsync)
+		}
 
-			s.RRDPInfo[rrdpid] = RRDPInfo{
-				Rsync:     rsync,
-				Path:      path,
-				SessionID: rrdp.SessionID,
-				Serial:    rrdp.Serial,
-			}
+		rSpan.LogKV("event", "rrdp", "type", "success", "message", "rrdp successfully fetched")
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetLevel(sentry.LevelInfo)
+			scope.SetTag("Rsync", rsync)
+			scope.SetTag("RRDP", vv)
+			rrdp.SetSentryScope(scope)
+			sentry.CaptureMessage("fetched rrdp successfully")
+		})
+
+		rSpan.Finish()
+		MetricRRDPSerial.With(
+			prometheus.Labels{
+				"address": vv,
+			}).Set(float64(rrdp.Serial))
+		lastFetch := time.Now().UTC().UnixNano() / 1000000000
+		MetricLastFetch.With(
+			prometheus.Labels{
+				"address": vv,
+				"type":    "rrdp",
+			}).Set(float64(lastFetch))
+		tmpStats = s.RRDPStats[vv]
+		tmpStats.LastFetch = int(lastFetch)
+		tmpStats.RRDPSerial = rrdp.Serial
+		tmpStats.RRDPSessionID = rrdp.SessionID
+		tmpStats.Duration = t2.Sub(t1).Seconds()
+		s.RRDPStats[vv] = tmpStats
+
+		s.RRDPInfo[rrdpid] = RRDPInfo{
+			Rsync:     rsync,
+			Path:      path,
+			SessionID: rrdp.SessionID,
+			Serial:    rrdp.Serial,
 		}
 	}
 }
@@ -554,13 +499,7 @@ func (s *state) MainRsync(pSpan opentracing.Span) {
 		Log: log.StandardLogger(),
 	}
 
-	rsyncList := make([]string, 0)
-	for v, _ := range s.FinalRsyncFetch {
-		rsyncList = append(rsyncList, v)
-	}
-	rsyncList = append(rsyncList, s.FailoverRsync...)
-
-	for _, v := range rsyncList {
+	for v, _ := range s.RsyncFetch {
 		rSpan := tracer.StartSpan(
 			"sync",
 			opentracing.ChildOf(span.Context()),
@@ -620,7 +559,6 @@ func (s *state) MainRsync(pSpan opentracing.Span) {
 		}
 		cancelRsync()
 		var countFiles int
-		s.Fetcher.PathAvailable = append(s.Fetcher.PathAvailable, v)
 		if files != nil {
 			countFiles = len(files)
 		}
@@ -817,7 +755,7 @@ func (s *state) MainTAL(pSpan opentracing.Span) {
 		if !success && s.RRDPFailover && tal.HasRsync() {
 			rsync := tal.GetRsyncURI()
 			log.Infof("Root certificate for %s will be downloaded using rsync: %s", path, rsync)
-			s.RsyncFetch[rsync] = time.Now().UTC()
+			s.RsyncFetch[rsync] = ""
 			tSpan.SetTag("failover-rsync", true)
 		} else if success {
 			log.Infof("Successfully downloaded root certificate for %s at %s", path, successUrl)
@@ -897,19 +835,27 @@ func (s *state) MainValidation(pSpan opentracing.Span) {
 					gn := string(sia.GeneralName)
 					if sia.AccessMethod.Equal(CertRepository) {
 						RsyncGN = gn
-						s.RsyncFetch[gn] = time.Now().UTC()
 					} else if sia.AccessMethod.Equal(CertRRDP) {
 						hasRRDP = true
 						RRDPGN = gn
 					}
 				}
+				gnExtracted, err := syncpki.ExtractRsyncDomainModule(RsyncGN)
+				if err != nil {
+					log.Errorf("Could not add cert rsync %s due to %v", RsyncGN, err)
+					continue
+				}
 
 				if hasRRDP {
-					if _, ok := s.RRDPFetch[RRDPGN]; !ok {
-						s.RRDPFetch[RRDPGN] = make([]string, 0)
+					prev, ok := s.RRDPFetch[RRDPGN]
+					if ok && prev != gnExtracted {
+						log.Errorf("rrdp %s tries to override %s with %s", RRDPGN, prev, gnExtracted)
+						continue
 					}
-					s.RRDPFetch[RRDPGN] = append(s.RRDPFetch[RRDPGN], RsyncGN)
+					s.RRDPFetch[RRDPGN] = gnExtracted
 				}
+				s.RsyncFetch[gnExtracted] = RRDPGN
+				s.CurrentRepos[gnExtracted] = time.Now().UTC()
 
 				count++
 			}
@@ -1052,7 +998,7 @@ type InfoResult struct {
 
 func (s *state) ServeInfo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	tmproa := s.ROAList
+	/*tmproa := s.ROAList
 
 	sia := make([]SIA, 0)
 	tmprsyncfetch := s.FinalRsyncFetch
@@ -1103,7 +1049,7 @@ func (s *state) ServeInfo(w http.ResponseWriter, r *http.Request) {
 		ValidationMessages: vm,
 	}
 	enc := json.NewEncoder(w)
-	enc.Encode(ir)
+	enc.Encode(ir)*/
 }
 
 func (s *state) Serve(addr string, path string, metricsPath string, infoPath string, corsOrigin string, corsCreds bool) {
@@ -1227,23 +1173,21 @@ func main() {
 		EnableCache: *CacheHeader,
 
 		Mode:         *Mode,
-		RRDPMode:     *RRDPMode,
 		RRDPFailover: *RRDPFailover,
 
-		RsyncFetch:      make(map[string]time.Time),
-		RRDPFetch:       make(map[string][]string),
-		FinalRsyncFetch: make(map[string]bool),
-		FinalRRDPFetch:  make(map[string][]string),
-		RRDPInfo:        make(map[string]RRDPInfo),
-		FailoverRsync:   make([]string, 0),
+		RRDPInfo: make(map[string]RRDPInfo),
 
-		Fetcher: &syncpki.LocalFetch{
-			MapDirectory: map[string]string{
+		PrevRepos:    make(map[string]time.Time),
+		CurrentRepos: make(map[string]time.Time),
+
+		RsyncFetch: make(map[string]string),
+		RRDPFetch:  make(map[string]string),
+
+		Fetcher: syncpki.NewLocalFetch(
+			map[string]string{
 				"rsync://": *Basepath,
 			},
-			Log:           log.StandardLogger(),
-			PathAvailable: make([]string, 0),
-		},
+			log.StandardLogger()),
 		HTTPFetcher: &syncpki.HTTPFetcher{
 			UserAgent: "Cloudflare-RPKI-RRDP/1.0 (+https://rpki.cloudflare.com)",
 			Client:    &http.Client{},
@@ -1298,8 +1242,7 @@ func main() {
 		s.Iteration++
 		iterationsUntilStable++
 		span.SetTag("iteration", s.Iteration)
-		s.FailoverRsync = make([]string, 0)
-		s.Fetcher.PathAvailable = make([]string, 0)
+
 		if *RRDP {
 			t1 := time.Now().UTC()
 			// RRDP
