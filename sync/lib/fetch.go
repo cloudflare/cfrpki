@@ -87,7 +87,7 @@ func (s *LocalFetch) GetFileConv(file *pki.PKIFile, convert bool) (*pki.SeekFile
 
 		rsyncBase, _, errExtract := ExtractRsyncDomainModule(file.Path)
 		if errExtract != nil && s.Log != nil {
-			s.Log.Errorf("error exracting rsync of %s: %v", file.Path, errExtract)
+			s.Log.Errorf("error extracting rsync of %s: %v", file.Path, errExtract)
 		}
 
 		if _, ok := s.repositories[rsyncBase]; !ok {
