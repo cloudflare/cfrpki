@@ -454,7 +454,7 @@ func (v *Validator) ValidateCertificate(cert *librpki.RPKI_Certificate, trust bo
 		return NewCertificateErrorParent(cert, parentCert, err)
 	}
 
-	// Check presence in revokation lists
+	// Check presence in revocation lists
 	_, revoked := v.Revoked[string(aki)+cert.Certificate.SerialNumber.String()]
 	if revoked {
 		return NewCertificateErrorRevocation(cert)

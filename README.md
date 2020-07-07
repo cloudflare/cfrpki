@@ -2,7 +2,7 @@
 
 [![Build Status](https://travis-ci.org/cloudflare/cfrpki.svg?branch=master)](https://travis-ci.org/cloudflare/cfrpki)
 
-<img align="left" src="resources/octorpki.png" alt="Cloudflare OctoRPKI logo"/>
+<img align="left" src="resources/octorpki.png" alt="Cloudflare OctoRPKI logo">
 
 _cfrpki_ is a collection of tools and libraries to perform RPKI relying party software
 operations.
@@ -11,7 +11,7 @@ This is the home of the **OctoRPKI validator**.
 
 To get started with Cloudflare's Relying Party software, go to the section **[OctoRPKI](#octorpki)** 🐙.
 
-</br>
+<br>
 
 ## Disclaimer
 
@@ -32,7 +32,7 @@ It is also used in production by multiple networks.
 
 <p align="center">
   <a href="https://rpki.cloudflare.com/?view=bgp&prefix=1.1.1.0%2F24">
-    <img src="resources/rpki_dashboard.png" alt="Cloudflare RPKI Dashboard" width="600px"/>
+    <img src="resources/rpki_dashboard.png" alt="Cloudflare RPKI Dashboard" width="600px">
   </a>
 </p>
 
@@ -118,7 +118,7 @@ You can disable the signature by passing `-output.sign=false` to the program.
 
 #### Docker
 
-OctoRPKI is avaialble a docker container. Add the TAL files in the `tals/` folder.
+OctoRPKI is available a docker container. Add the TAL files in the `tals/` folder.
 
 ```bash
 $ mkdir tals && mkdir cache && touch cache/rrdp.json
