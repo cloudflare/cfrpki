@@ -27,7 +27,7 @@ Every network can verify that the routing information data (prefixes and ASN)
 was not tampered with.
 
 Cloudflare develops and uses OctoRPKI. It is the data provider behind
-https://rpki.cloudflare.com/ (including the [rpki.json](https://rpki.cloudflare.com/rpki.json)).
+<https://rpki.cloudflare.com/> (including the [rpki.json](https://rpki.cloudflare.com/rpki.json)).
 It is also used in production by multiple networks.
 
 <p align="center">
@@ -54,6 +54,7 @@ By default, when unstable, the server will return `503` in order to avoid distri
 
 The initial cold start require a few iterations which take 5 to 10 minutes (around 500MB are downloaded).
 A refresh is much faster.
+
 - Fetching root certificate listed in TAL
 - Fetching repositories listed in the root certificates (RRDP and rsync)
 - Fetching sub-repositories (National Internet Registries and delegated organizations)
@@ -84,11 +85,14 @@ First, go to the [Releases](https://github.com/cloudflare/cfrpki/releases) tab,
 download the latest version matching your platform.
 
 To install the Linux deb package and start it:
+
 ```bash
 $ sudo dpkg -i octorpki_1.1.4_amd64.deb
 $ sudo systemctl start octorpki
 ```
+
 You can get the logs using:
+
 ```bash
 $ sudo journalctl -fu octorpki
 ```
@@ -97,6 +101,7 @@ Please note the configuration parameters are in `/etc/default/octorpki`.
 They match the CLI arguments (`$ octorpki -h` to list them).
 
 For instance, if you want to change the port:
+
 ```bash
 sudo echo OCTORPKI_ARGS=-http.addr :8081 | sudo tee /etc/default/octorpki
 ```
@@ -108,8 +113,8 @@ by default, it will fetch the TALs in `./tals` folder and use `./cache`
 to store the RPKI repository data.
 Make sure you download put all the TALs in the correct folder.
 
-Once OctoRPKI completed its first validation, you can access the 
-ROAs list at the following address: http://localhost:8081/output.json.
+Once OctoRPKI completed its first validation, you can access the
+ROAs list at the following address: <http://localhost:8081/output.json>.
 
 By default, the validator is configured to sign the output.
 We advise that you generate an ECDSA key. Follow the instructions in the
@@ -126,11 +131,11 @@ $ chmod 770 -R tals && chmod 770 -R cache && chmod 770 cache/rrdp.json
 $ docker run -ti --net=host -v $PWD/tals:/tals -v $PWD/cache:/cache -p 8081:8081 cloudflare/octorpki
 ```
 
-Depending on your Docker configuration, you may need to specify `--net=host` 
+Depending on your Docker configuration, you may need to specify `--net=host`
 and set permissions for the files in order to avoid errors.
 
 Using the default settings, you can access the generated ROAs list on
-http://localhost:8081/output.json.
+<http://localhost:8081/output.json>.
 
 #### Compile
 
@@ -138,9 +143,11 @@ The source of OctoRPKI is in the folder `cmd/octorpki`.
 Make sure you have the [Go toolkit installed](https://golang.org/doc/install).
 
 You can then build using `go build`
+
 ```
 $ cd cmd/octorpki && go build
 ```
+
 The binary is now available in the same directory.
 
 Have a look at the Makefile for more targets
@@ -171,7 +178,7 @@ Then extract the public key
 $ openssl ec -in private.pem -pubout -outform pem > public.pem
 ```
 
-If OctoRPKI is running locally using the default port and file (http://localhost:8081/output.json), you can connect GoRTR:
+If OctoRPKI is running locally using the default port and file (<http://localhost:8081/output.json>), you can connect GoRTR:
 
 ```bash
 $ gortr -verify.key public.pem -cache http://localhost:8081/output.json
