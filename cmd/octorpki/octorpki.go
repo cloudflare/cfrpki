@@ -73,6 +73,7 @@ var (
 	CacheHeader = flag.Bool("http.cache", true, "Enable cache header")
 	MetricsPath = flag.String("http.metrics", "/metrics", "Prometheus metrics endpoint")
 	InfoPath    = flag.String("http.info", "/infos", "Information URL")
+	HealthPath  = flag.String("http.health", "/health", "Health URL")
 
 	CorsOrigins = flag.String("cors.origins", "*", "Cors origins separated by comma")
 	CorsCreds   = flag.Bool("cors.creds", false, "Cors enable credentials")
@@ -717,6 +718,18 @@ func (s *state) ServeROAs(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *state) ServeHealth(w http.ResponseWriter, r *http.Request) {
+	ok := s.Stable && len(s.ROAList.Data) > 0
+
+	if !ok {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write([]byte("Not ready yet"))
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
 type SIA struct {
 	Rsync string `json:"rsync"`
 	RRDP  string `json:"rrdp,omitempty"`
@@ -798,7 +811,7 @@ func (s *state) ServeInfo(w http.ResponseWriter, r *http.Request) {
 	enc.Encode(ir)
 }
 
-func (s *state) Serve(addr string, path string, metricsPath string, infoPath string, corsOrigin string, corsCreds bool) {
+func (s *state) Serve(addr string, path string, metricsPath string, infoPath string, healthPath string, corsOrigin string, corsCreds bool) {
 	// Note(Erica): fix https://github.com/cloudflare/cfrpki/issues/8
 	fullPath := path
 	if len(path) > 0 && string(path[0]) != "/" {
@@ -810,6 +823,7 @@ func (s *state) Serve(addr string, path string, metricsPath string, infoPath str
 
 	r.HandleFunc(fullPath, s.ServeROAs)
 	r.HandleFunc(infoPath, s.ServeInfo)
+	r.HandleFunc(healthPath, s.ServeHealth)
 	r.Handle(metricsPath, promhttp.Handler())
 
 	corsReq := cors.New(cors.Options{
@@ -929,7 +943,7 @@ func main() {
 	}
 
 	if *Mode == "server" {
-		go s.Serve(*Addr, *Output, *MetricsPath, *InfoPath, *CorsOrigins, *CorsCreds)
+		go s.Serve(*Addr, *Output, *MetricsPath, *InfoPath, *HealthPath, *CorsOrigins, *CorsCreds)
 	} else if *Mode != "oneoff" {
 		log.Fatalf("Mode %v is not specified. Choose either server or oneoff", *Mode)
 	}
