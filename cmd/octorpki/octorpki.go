@@ -20,10 +20,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/cloudflare/cfrpki/sync/lib"
-	"github.com/cloudflare/cfrpki/validator/lib"
+	syncpki "github.com/cloudflare/cfrpki/sync/lib"
+	librpki "github.com/cloudflare/cfrpki/validator/lib"
 	"github.com/cloudflare/cfrpki/validator/pki"
 
 	"github.com/rs/cors"
@@ -35,10 +36,11 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	// Debugging
+	"net/http/pprof"
+
 	"github.com/getsentry/sentry-go"
 	"github.com/opentracing/opentracing-go"
 	jcfg "github.com/uber/jaeger-client-go/config"
-	"net/http/pprof"
 )
 
 var (
@@ -252,6 +254,11 @@ type state struct {
 	ROAsTALsCount      []ROAsTAL
 
 	Pprof bool
+}
+
+type Server struct {
+	State *state
+	lock  sync.Mutex
 }
 
 func (s *state) MainReduce() bool {
@@ -938,19 +945,22 @@ func (s *state) MainValidation(pSpan opentracing.Span) {
 	s.ROAList = roalist
 }
 
-func (s *state) ServeROAs(w http.ResponseWriter, r *http.Request) {
-	if s.Stable || !s.WaitStable {
+func (s *Server) ServeROAs(w http.ResponseWriter, r *http.Request) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
 
-		upTo := s.LastComputed.Add(s.Validity)
+	if s.State.Stable || !s.State.WaitStable {
+
+		upTo := s.State.LastComputed.Add(s.State.Validity)
 		maxAge := int(upTo.Sub(time.Now()).Seconds())
 
 		w.Header().Set("Content-Type", "application/json")
 
-		if maxAge > 0 && s.EnableCache {
+		if maxAge > 0 && s.State.EnableCache {
 			w.Header().Set("Cache-Control", fmt.Sprintf("max-age=%v", maxAge))
 		}
 
-		tmp := s.ROAList
+		tmp := s.State.ROAList
 
 		etag := sha256.New()
 		etag.Write([]byte(fmt.Sprintf("%v/%v", tmp.Metadata.Generated, tmp.Metadata.Counts)))
@@ -998,13 +1008,16 @@ type InfoResult struct {
 	ROACount           int       `json:"roas-count"`
 }
 
-func (s *state) ServeInfo(w http.ResponseWriter, r *http.Request) {
+func (s *Server) ServeInfo(w http.ResponseWriter, r *http.Request) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	w.Header().Set("Content-Type", "application/json")
-	/*tmproa := s.ROAList
+	/*tmproa := s.State.ROAList
 
 	sia := make([]SIA, 0)
-	tmprsyncfetch := s.FinalRsyncFetch
-	tmprrdpfetch := s.FinalRRDPFetch
+	tmprsyncfetch := s.State.FinalRsyncFetch
+	tmprrdpfetch := s.State.FinalRRDPFetch
 	for k, _ := range tmprsyncfetch {
 		sia = append(sia, SIA{
 			Rsync: k,
@@ -1018,8 +1031,8 @@ func (s *state) ServeInfo(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
-	tmprsync := s.RsyncStats
-	tmprrdp := s.RRDPStats
+	tmprsync := s.State.RsyncStats
+	tmprrdp := s.State.RRDPStats
 	tmprsyncstats := make([]Stats, 0)
 	tmprrdpstats := make([]Stats, 0)
 	for _, v := range tmprsync {
@@ -1028,33 +1041,33 @@ func (s *state) ServeInfo(w http.ResponseWriter, r *http.Request) {
 	for _, v := range tmprrdp {
 		tmprrdpstats = append(tmprrdpstats, v)
 	}
-	vm := s.ValidationMessages
+	vm := s.State.ValidationMessages
 
 	tals := make([]string, 0)
-	tmptals := s.Tals
+	tmptals := s.State.Tals
 	for _, v := range tmptals {
 		tals = append(tals, v.Path)
 	}
 
 	ir := InfoResult{
 		TALs:               tals,
-		Stable:             s.Stable,
+		Stable:             s.State.Stable,
 		SIAs:               sia,
 		ROACount:           len(tmproa.Data),
-		ROAsTALs:           s.ROAsTALsCount,
+		ROAsTALs:           s.State.ROAsTALsCount,
 		Rsync:              tmprsyncstats,
 		RRDP:               tmprrdpstats,
-		LastValidation:     int(s.LastComputed.UnixNano() / 1000000),
-		ExploredFiles:      s.CountExplore,
-		ValidationDuration: s.ValidationDuration.Seconds(),
-		Iteration:          s.Iteration,
+		LastValidation:     int(s.State.LastComputed.UnixNano() / 1000000),
+		ExploredFiles:      s.State.CountExplore,
+		ValidationDuration: s.State.ValidationDuration.Seconds(),
+		Iteration:          s.State.Iteration,
 		ValidationMessages: vm,
 	}
 	enc := json.NewEncoder(w)
 	enc.Encode(ir)*/
 }
 
-func (s *state) Serve(addr string, path string, metricsPath string, infoPath string, corsOrigin string, corsCreds bool) {
+func (s *Server) Serve(addr string, path string, metricsPath string, infoPath string, corsOrigin string, corsCreds bool) {
 	// Note(Erica): fix https://github.com/cloudflare/cfrpki/issues/8
 	fullPath := path
 	if len(path) > 0 && string(path[0]) != "/" {
@@ -1068,7 +1081,7 @@ func (s *state) Serve(addr string, path string, metricsPath string, infoPath str
 	r.HandleFunc(infoPath, s.ServeInfo)
 	r.Handle(metricsPath, promhttp.Handler())
 
-	if s.Pprof {
+	if s.State.Pprof {
 		r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
 		r.HandleFunc("/debug/pprof/profile", pprof.Profile)
 		r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
@@ -1083,6 +1096,61 @@ func (s *state) Serve(addr string, path string, metricsPath string, infoPath str
 	}).Handler(r)
 
 	log.Fatal(http.ListenAndServe(addr, corsReq))
+}
+
+func (s *Server) SetState(state *state) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	s.State = state
+}
+
+func (s *state) Copy() *state {
+	newState := *s
+	newState.ROAList = &prefixfile.ROAList{
+		Metadata: s.ROAList.Metadata,
+		Data:     append([]prefixfile.ROAJson{}, s.ROAList.Data...),
+	}
+	newState.TalsFetch = map[string]*librpki.RPKI_TAL{}
+	for k, v := range s.TalsFetch {
+		newState.TalsFetch[k] = v
+	}
+	newState.ValidationMessages = append([]string{}, s.ValidationMessages...)
+	newState.ROAsTALsCount = append([]ROAsTAL{}, s.ROAsTALsCount...)
+	newState.RRDPInfo = map[string]RRDPInfo{}
+	for k, v := range s.RRDPInfo {
+		newState.RRDPInfo[k] = v
+	}
+	newState.RRDPStats = map[string]Stats{}
+	for k, v := range s.RRDPStats {
+		newState.RRDPStats[k] = v
+	}
+	newState.RsyncStats = map[string]Stats{}
+	for k, v := range s.RsyncStats {
+		newState.RsyncStats[k] = v
+	}
+	newState.RsyncFetch = map[string]string{}
+	for k, v := range s.RsyncFetch {
+		newState.RsyncFetch[k] = v
+	}
+	newState.RRDPFetch = map[string]string{}
+	for k, v := range s.RRDPFetch {
+		newState.RRDPFetch[k] = v
+	}
+	newState.RRDPFetchDomain = map[string]string{}
+	for k, v := range s.RRDPFetchDomain {
+		newState.RRDPFetchDomain[k] = v
+	}
+	newState.CurrentRepos = map[string]time.Time{}
+	for k, v := range s.CurrentRepos {
+		newState.CurrentRepos[k] = v
+	}
+	newState.PrevRepos = map[string]time.Time{}
+	for k, v := range s.PrevRepos {
+		newState.PrevRepos[k] = v
+	}
+
+	return &newState
 }
 
 func init() {
@@ -1223,8 +1291,12 @@ func main() {
 		s.Key = keyDec
 	}
 
+	server := &Server{
+		State: s,
+	}
+
 	if *Mode == "server" {
-		go s.Serve(*Addr, *Output, *MetricsPath, *InfoPath, *CorsOrigins, *CorsCreds)
+		go server.Serve(*Addr, *Output, *MetricsPath, *InfoPath, *CorsOrigins, *CorsCreds)
 	} else if *Mode != "oneoff" {
 		log.Fatalf("Mode %v is not specified. Choose either server or oneoff", *Mode)
 	}
@@ -1234,6 +1306,9 @@ func main() {
 	var pSpan opentracing.Span
 	var iterationsUntilStable int
 	for {
+		newS := s.Copy()
+		newS.Stable = false
+
 		if !spanActive {
 			pSpan = tracer.StartSpan("multoperation")
 			spanActive = true
@@ -1242,22 +1317,22 @@ func main() {
 
 		span := tracer.StartSpan("operation", opentracing.ChildOf(pSpan.Context()))
 
-		s.Iteration++
+		newS.Iteration++
 		iterationsUntilStable++
-		span.SetTag("iteration", s.Iteration)
+		span.SetTag("iteration", newS.Iteration)
 
 		if *RRDP {
 			t1 := time.Now().UTC()
 			// RRDP
 			if *RRDPFile != "" {
-				err = s.LoadRRDP(*RRDPFile)
+				err = newS.LoadRRDP(*RRDPFile)
 				if err != nil {
 					sentry.CaptureException(err)
 				}
 			}
-			s.MainRRDP(span)
+			newS.MainRRDP(span)
 			if *RRDPFile != "" {
-				s.SaveRRDP(*RRDPFile)
+				newS.SaveRRDP(*RRDPFile)
 				if err != nil {
 					sentry.CaptureException(err)
 				}
@@ -1274,8 +1349,8 @@ func main() {
 		t1 := time.Now().UTC()
 
 		// HTTPs TAL
-		s.MainTAL(span)
-		s.TalsFetch = make(map[string]*librpki.RPKI_TAL) // clear decoded TAL for next iteration
+		newS.MainTAL(span)
+		newS.TalsFetch = make(map[string]*librpki.RPKI_TAL) // clear decoded TAL for next iteration
 
 		t2 := time.Now().UTC()
 		MetricOperationTime.With(
@@ -1287,7 +1362,7 @@ func main() {
 		t1 = time.Now().UTC()
 
 		// Rsync
-		s.MainRsync(span)
+		newS.MainRsync(span)
 
 		t2 = time.Now().UTC()
 		MetricOperationTime.With(
@@ -1296,25 +1371,25 @@ func main() {
 			}).
 			Observe(float64(t2.Sub(t1).Seconds()))
 
-		s.ValidationMessages = make([]string, 0)
+		newS.ValidationMessages = make([]string, 0)
 		t1 = time.Now().UTC()
 
 		// Validation
-		s.MainValidation(span)
+		newS.MainValidation(span)
 
 		t2 = time.Now().UTC()
-		s.ValidationDuration = t2.Sub(t1)
+		newS.ValidationDuration = t2.Sub(t1)
 		MetricOperationTime.With(
 			prometheus.Labels{
 				"type": "validation",
 			}).
-			Observe(float64(s.ValidationDuration.Seconds()))
-		MetricLastValidation.Set(float64(s.LastComputed.UnixNano() / 1000000000))
+			Observe(float64(newS.ValidationDuration.Seconds()))
+		MetricLastValidation.Set(float64(newS.LastComputed.UnixNano() / 1000000000))
 
 		t1 = time.Now().UTC()
 
 		// Reduce
-		s.Stable = !s.MainReduce() && s.Iteration > 1
+		newS.Stable = !newS.MainReduce() && newS.Iteration > 1
 
 		t2 = time.Now().UTC()
 		MetricOperationTime.With(
@@ -1323,32 +1398,32 @@ func main() {
 			}).
 			Observe(float64(t2.Sub(t1).Seconds()))
 
-		if *Mode == "oneoff" && (s.Stable || !*WaitStable) {
+		if *Mode == "oneoff" && (newS.Stable || !*WaitStable) {
 			if *Output == "" {
 				enc := json.NewEncoder(os.Stdout)
-				enc.Encode(s.ROAList)
+				enc.Encode(newS.ROAList)
 			} else {
 				f, err := os.Create(*Output)
 				if err != nil {
 					log.Fatal(err)
 				}
 				enc := json.NewEncoder(f)
-				enc.Encode(s.ROAList)
+				enc.Encode(newS.ROAList)
 				f.Close()
 			}
 
 		}
 
-		span.SetTag("stable", s.Stable)
+		span.SetTag("stable", newS.Stable)
 		span.Finish()
 
-		if *Mode == "oneoff" && s.Stable {
+		if *Mode == "oneoff" && newS.Stable {
 			log.Info("Stable, terminating")
 			break
 		}
 
-		if s.Stable {
-			MetricLastStableValidation.Set(float64(s.LastComputed.UnixNano() / 1000000000))
+		if newS.Stable {
+			MetricLastStableValidation.Set(float64(newS.LastComputed.UnixNano() / 1000000000))
 			MetricState.Set(float64(1))
 
 			pSpan.SetTag("iterations", iterationsUntilStable)
@@ -1356,13 +1431,14 @@ func main() {
 			spanActive = false
 
 			log.Infof("Stable state. Revalidating in %v", mainRefresh)
+			server.SetState(newS)
 			<-time.After(mainRefresh)
-			s.Stable = false
 		} else {
 			MetricState.Set(float64(0))
 
 			log.Info("Still exploring. Revalidating now")
 		}
 
+		s = newS
 	}
 }
