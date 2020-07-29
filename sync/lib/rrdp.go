@@ -348,7 +348,11 @@ func (s *RRDPSystem) FetchRRDP(cbArgs ...interface{}) error {
 		if s.Log != nil {
 			s.Log.Info(msg)
 		}
-		sHub.CaptureMessage(msg)
+		sHub.ConfigureScope(func(scope *sentry.Scope) {
+			scope.SetTag("count", fmt.Sprintf("%d", processed))
+			scope.SetTag("serial", fmt.Sprintf("%d", curSerial))
+		})
+		sHub.CaptureMessage("RRDP: finished processing notifications")
 	}
 	s.Serial = curSerial
 	s.SessionID = curSessionID
