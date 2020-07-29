@@ -982,15 +982,12 @@ func (s *state) ServeROAs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *state) ServeHealth(w http.ResponseWriter, r *http.Request) {
-	ok := s.Stable && len(s.ROAList.Data) > 0
-
-	if !ok {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		w.Write([]byte("Not ready yet"))
+	if s.Stable || s.HasPreviousStable {
+		w.WriteHeader(http.StatusOK)
 		return
 	}
-
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusServiceUnavailable)
+	w.Write([]byte("Not ready yet"))
 }
 
 type SIA struct {
