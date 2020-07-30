@@ -1,0 +1,18 @@
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+alerting:
+  alertmanagers:
+  - static_configs:
+    - targets:
+rule_files:
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+    - targets: ['localhost:9090']
+  - job_name: 'gortr'
+    static_configs:
+    - targets: ['gortr:8080', 'gortr-cf:8082']
+  - job_name: 'octorpki'
+    static_configs:
+    - targets: ['octorpki:8081']
