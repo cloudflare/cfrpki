@@ -41,6 +41,7 @@ type CertificateError struct {
 	Message  string
 
 	Certificate *librpki.RPKI_Certificate
+	Conflict    *librpki.RPKI_Certificate
 	Parent      *librpki.RPKI_Certificate
 
 	IPs  []librpki.IPCertificateInformation
@@ -134,6 +135,22 @@ func (e *CertificateError) SetSentryScope(scope *sentry.Scope) {
 		scope.SetExtra("Certificate.ASN", e.Certificate.ASNums)
 		scope.SetExtra("Certificate.ASNRDI", e.Certificate.ASNRDI)
 	}
+	if e.Conflict != nil {
+		ski := e.Conflict.Certificate.SubjectKeyId
+		aki := e.Conflict.Certificate.AuthorityKeyId
+		scope.SetTag("Conflict.SubjectKeyId", hex.EncodeToString(ski))
+		scope.SetTag("Conflict.AuthorityKeyId", hex.EncodeToString(aki))
+
+		scope.SetExtra("Conflict.NotBefore", e.Conflict.Certificate.NotBefore)
+		scope.SetExtra("Conflict.NotAfter", e.Conflict.Certificate.NotAfter)
+		scope.SetTag("Conflict.SerialNumber", e.Conflict.Certificate.SerialNumber.String())
+
+		// Might be worth to convert into proper strings later
+		scope.SetExtra("Conflict.SIAs", e.Conflict.SubjectInformationAccess)
+		scope.SetExtra("Conflict.IP", e.Conflict.IPAddresses)
+		scope.SetExtra("Conflict.ASN", e.Conflict.ASNums)
+		scope.SetExtra("Conflict.ASNRDI", e.Conflict.ASNRDI)
+	}
 	if e.File != nil {
 		if e.File.Repo != "" {
 			scope.SetTag("File.Repository", e.File.Repo)
@@ -200,10 +217,11 @@ func NewCertificateErrorResource(cert *librpki.RPKI_Certificate, ips []librpki.I
 	}
 }
 
-func NewCertificateErrorConflict(cert *librpki.RPKI_Certificate) *CertificateError {
+func NewCertificateErrorConflict(cert *librpki.RPKI_Certificate, conflict *librpki.RPKI_Certificate) *CertificateError {
 	return &CertificateError{
 		EType:       ERROR_CERTIFICATE_CONFLICT,
 		Certificate: cert,
+		Conflict:    conflict,
 		Message:     "certificate conflict",
 		Stack:       callers(),
 	}

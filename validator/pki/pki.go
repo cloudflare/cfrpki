@@ -393,14 +393,16 @@ func (v *Validator) AddCert(cert *librpki.RPKI_Certificate, trust bool) (bool, [
 	ski := string(cert.Certificate.SubjectKeyId)
 	aki := string(cert.Certificate.AuthorityKeyId)
 
-	_, exists := v.Objects[ski]
+	res := ObjectToResource(cert)
+
+	conflict, exists := v.Objects[ski]
 	if exists {
-		return false, nil, nil, NewCertificateErrorConflict(cert)
+		conflictCert, _ := conflict.Resource.(*librpki.RPKI_Certificate)
+		return false, nil, res, NewCertificateErrorConflict(cert, conflictCert)
 	}
 
 	_, hasParentValid := v.ValidObjects[aki]
 	parent, hasParent := v.Objects[aki]
-	res := ObjectToResource(cert)
 	res.Parent = parent
 
 	var valid bool
