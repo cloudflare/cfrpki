@@ -832,7 +832,7 @@ func (s *state) MainValidation(pSpan opentracing.Span) {
 		}
 		for _, obj := range manager[i].Validator.ValidObjects {
 			if obj.Type == pki.TYPE_CER {
-				cer := obj.Resource.(*librpki.RPKI_Certificate)
+				cer := obj.Resource.(*librpki.RPKICertificate)
 				var RsyncGN string
 				var RRDPGN string
 				var hasRRDP bool

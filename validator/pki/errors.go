@@ -40,9 +40,9 @@ type CertificateError struct {
 	InnerErr error
 	Message  string
 
-	Certificate *librpki.RPKI_Certificate
-	Conflict    *librpki.RPKI_Certificate
-	Parent      *librpki.RPKI_Certificate
+	Certificate *librpki.RPKICertificate
+	Conflict    *librpki.RPKICertificate
+	Parent      *librpki.RPKICertificate
 
 	IPs  []librpki.IPCertificateInformation
 	ASNs []librpki.ASNCertificateInformation
@@ -176,7 +176,7 @@ func (e *CertificateError) SetSentryScope(scope *sentry.Scope) {
 	}
 }
 
-func NewCertificateErrorValidity(cert *librpki.RPKI_Certificate, err error) *CertificateError {
+func NewCertificateErrorValidity(cert *librpki.RPKICertificate, err error) *CertificateError {
 	return &CertificateError{
 		EType:       ERROR_CERTIFICATE_EXPIRATION,
 		Certificate: cert,
@@ -186,7 +186,7 @@ func NewCertificateErrorValidity(cert *librpki.RPKI_Certificate, err error) *Cer
 	}
 }
 
-func NewCertificateErrorParent(cert, parent *librpki.RPKI_Certificate, err error) *CertificateError {
+func NewCertificateErrorParent(cert, parent *librpki.RPKICertificate, err error) *CertificateError {
 	return &CertificateError{
 		EType:       ERROR_CERTIFICATE_PARENT,
 		Certificate: cert,
@@ -197,7 +197,7 @@ func NewCertificateErrorParent(cert, parent *librpki.RPKI_Certificate, err error
 	}
 }
 
-func NewCertificateErrorRevocation(cert *librpki.RPKI_Certificate) *CertificateError {
+func NewCertificateErrorRevocation(cert *librpki.RPKICertificate) *CertificateError {
 	return &CertificateError{
 		EType:       ERROR_CERTIFICATE_REVOCATION,
 		Certificate: cert,
@@ -206,7 +206,7 @@ func NewCertificateErrorRevocation(cert *librpki.RPKI_Certificate) *CertificateE
 	}
 }
 
-func NewCertificateErrorResource(cert *librpki.RPKI_Certificate, ips []librpki.IPCertificateInformation, asns []librpki.ASNCertificateInformation) *CertificateError {
+func NewCertificateErrorResource(cert *librpki.RPKICertificate, ips []librpki.IPCertificateInformation, asns []librpki.ASNCertificateInformation) *CertificateError {
 	return &CertificateError{
 		EType:       ERROR_CERTIFICATE_RESOURCE,
 		Certificate: cert,
@@ -217,7 +217,7 @@ func NewCertificateErrorResource(cert *librpki.RPKI_Certificate, ips []librpki.I
 	}
 }
 
-func NewCertificateErrorConflict(cert *librpki.RPKI_Certificate, conflict *librpki.RPKI_Certificate) *CertificateError {
+func NewCertificateErrorConflict(cert *librpki.RPKICertificate, conflict *librpki.RPKICertificate) *CertificateError {
 	return &CertificateError{
 		EType:       ERROR_CERTIFICATE_CONFLICT,
 		Certificate: cert,

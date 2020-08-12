@@ -30,7 +30,7 @@ type Manifest struct {
 }
 
 type RPKIManifest struct {
-	Certificate        *RPKI_Certificate
+	Certificate        *RPKICertificate
 	Content            ManifestContent
 	BadFormat          bool
 	InnerValid         bool

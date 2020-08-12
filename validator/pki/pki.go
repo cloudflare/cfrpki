@@ -51,7 +51,7 @@ type Resource struct {
 
 func (res *Resource) GetIdentifier() (bool, []byte) {
 	switch res := res.Resource.(type) {
-	case *librpki.RPKI_Certificate:
+	case *librpki.RPKICertificate:
 		return true, res.Certificate.SubjectKeyId
 	case *librpki.RPKI_ROA:
 		return true, res.Certificate.Certificate.SubjectKeyId
@@ -387,7 +387,7 @@ func (v *Validator) AddTAL(tal *librpki.RPKITAL) ([]*PKIFile, *Resource, error) 
 	return files, res, nil
 }
 
-func (v *Validator) AddCert(cert *librpki.RPKI_Certificate, trust bool) (bool, []*PKIFile, *Resource, error) {
+func (v *Validator) AddCert(cert *librpki.RPKICertificate, trust bool) (bool, []*PKIFile, *Resource, error) {
 	pathCert := ExtractPathCert(cert)
 
 	ski := string(cert.Certificate.SubjectKeyId)
@@ -397,7 +397,7 @@ func (v *Validator) AddCert(cert *librpki.RPKI_Certificate, trust bool) (bool, [
 
 	conflict, exists := v.Objects[ski]
 	if exists {
-		conflictCert, _ := conflict.Resource.(*librpki.RPKI_Certificate)
+		conflictCert, _ := conflict.Resource.(*librpki.RPKICertificate)
 		return false, nil, res, NewCertificateErrorConflict(cert, conflictCert)
 	}
 
@@ -429,7 +429,7 @@ func (v *Validator) AddCert(cert *librpki.RPKI_Certificate, trust bool) (bool, [
 	return valid, pathCert, res, err
 }
 
-func (v *Validator) ValidateCertificate(cert *librpki.RPKI_Certificate, trust bool) error {
+func (v *Validator) ValidateCertificate(cert *librpki.RPKICertificate, trust bool) error {
 	// Check time validity
 	err := cert.ValidateTime(v.Time)
 	if err != nil {
@@ -447,7 +447,7 @@ func (v *Validator) ValidateCertificate(cert *librpki.RPKI_Certificate, trust bo
 		return NewCertificateErrorParent(cert, nil, errors.New("missing parent"))
 	}
 
-	parentCert, ok := parent.Resource.(*librpki.RPKI_Certificate)
+	parentCert, ok := parent.Resource.(*librpki.RPKICertificate)
 	if !ok {
 		return NewCertificateErrorParent(cert, parentCert, errors.New("parent is not a rpki certificate"))
 	}
@@ -472,7 +472,7 @@ func (v *Validator) ValidateCertificate(cert *librpki.RPKI_Certificate, trust bo
 			//return errors.New(fmt.Sprintf("One of the parents (%x) of %x is not valid", key, ski))
 			return NewCertificateErrorParent(cert, parentCert, errors.New(fmt.Sprintf("ancestor %x is missing", key)))
 		}
-		chainCert, ok := upperCert.Resource.(*librpki.RPKI_Certificate)
+		chainCert, ok := upperCert.Resource.(*librpki.RPKICertificate)
 		if !ok {
 			//return errors.New(fmt.Sprintf("One of the parents (%x) of %x is not a RPKI Certificate", key, ski))
 			return NewCertificateErrorParent(cert, parentCert, errors.New(fmt.Sprintf("ancestor %x is not a rpki certificate", key)))
@@ -493,7 +493,7 @@ func (v *Validator) ValidateCertificate(cert *librpki.RPKI_Certificate, trust bo
 		if !found {
 			return NewCertificateErrorParent(cert, parentCert, errors.New(fmt.Sprintf("ancestor %x is not valid", key)))
 		}
-		chainCert, ok := upperCert.Resource.(*librpki.RPKI_Certificate)
+		chainCert, ok := upperCert.Resource.(*librpki.RPKICertificate)
 		if !ok {
 			return NewCertificateErrorParent(cert, parentCert, errors.New(fmt.Sprintf("ancestor %x is not a rpki certificate", key)))
 		}
@@ -617,10 +617,10 @@ func (v *Validator) AddCRL(crl *pkix.CertificateList) (bool, *Resource, error) {
 		valid = true
 	}
 
-	var parentCert *librpki.RPKI_Certificate
+	var parentCert *librpki.RPKICertificate
 	if hasParent && valid {
 		var ok bool
-		parentCert, ok = parent.Resource.(*librpki.RPKI_Certificate)
+		parentCert, ok = parent.Resource.(*librpki.RPKICertificate)
 		if !ok {
 			valid = false
 		}
@@ -644,7 +644,7 @@ func (v *Validator) AddCRL(crl *pkix.CertificateList) (bool, *Resource, error) {
 				key := string(aki) + revoked.SerialNumber.String()
 				child, found := v.CertsSerial[key]
 				if found {
-					childConv := child.Resource.(*librpki.RPKI_Certificate)
+					childConv := child.Resource.(*librpki.RPKICertificate)
 					if childConv.Certificate.SerialNumber.Cmp(revoked.SerialNumber) == 0 {
 						v.InvalidateObject(childConv.Certificate.SubjectKeyId)
 					}
@@ -683,7 +683,7 @@ func DetermineType(path string) int {
 	return TYPE_UNKNOWN
 }
 
-func ExtractPathCert(cert *librpki.RPKI_Certificate) []*PKIFile {
+func ExtractPathCert(cert *librpki.RPKICertificate) []*PKIFile {
 	fileList := make([]*PKIFile, 0)
 
 	var repo string

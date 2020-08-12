@@ -21,7 +21,7 @@ type XMLContent struct {
 
 type RPKI_XML struct {
 	Content     []byte
-	Certificate *RPKI_Certificate
+	Certificate *RPKICertificate
 
 	InnerValid         bool
 	InnerValidityError error

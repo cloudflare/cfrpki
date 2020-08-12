@@ -41,7 +41,7 @@ type ROA_Entry struct {
 type RPKI_ROA struct {
 	ASN         int
 	Entries     []*ROA_Entry
-	Certificate *RPKI_Certificate
+	Certificate *RPKICertificate
 	BadFormat   bool
 	SigningTime time.Time
 
@@ -175,7 +175,7 @@ func (roa *RPKI_ROA) ValidateEntries() error {
 	return nil
 }
 
-func ValidateIPRoaCertificateList(entries []*ROA_Entry, cert *RPKI_Certificate) ([]*ROA_Entry, []*ROA_Entry, []*ROA_Entry) {
+func ValidateIPRoaCertificateList(entries []*ROA_Entry, cert *RPKICertificate) ([]*ROA_Entry, []*ROA_Entry, []*ROA_Entry) {
 	valids := make([]*ROA_Entry, 0)
 	invalids := make([]*ROA_Entry, 0)
 	checkParents := make([]*ROA_Entry, 0)
@@ -193,7 +193,7 @@ func ValidateIPRoaCertificateList(entries []*ROA_Entry, cert *RPKI_Certificate) 
 	return valids, invalids, checkParents
 }
 
-func (roa *RPKI_ROA) ValidateIPRoaCertificate(cert *RPKI_Certificate) ([]*ROA_Entry, []*ROA_Entry, []*ROA_Entry) {
+func (roa *RPKI_ROA) ValidateIPRoaCertificate(cert *RPKICertificate) ([]*ROA_Entry, []*ROA_Entry, []*ROA_Entry) {
 	return ValidateIPRoaCertificateList(roa.Entries, cert)
 }
 
