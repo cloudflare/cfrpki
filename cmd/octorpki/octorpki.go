@@ -213,7 +213,7 @@ type Stats struct {
 type state struct {
 	Basepath     string
 	Tals         []*pki.PKIFile
-	TalsFetch    map[string]*librpki.RPKI_TAL
+	TalsFetch    map[string]*librpki.RPKITAL
 	TalNames     []string
 	UseManifest  bool
 	RsyncBin     string
@@ -823,7 +823,7 @@ func (s *state) MainValidation(pSpan opentracing.Span) {
 		// Insertion of SIAs in db to allow rsync to update the repos
 		var count int
 		for _, obj := range manager[i].Validator.TALs {
-			tal := obj.Resource.(*librpki.RPKI_TAL)
+			tal := obj.Resource.(*librpki.RPKITAL)
 			//s.RsyncFetch[tal.GetURI()] = time.Now().UTC()
 			if !obj.CertTALValid {
 				s.TalsFetch[obj.File.Path] = tal
@@ -1180,7 +1180,7 @@ func main() {
 	s := &state{
 		Basepath:     *Basepath,
 		Tals:         tals,
-		TalsFetch:    make(map[string]*librpki.RPKI_TAL),
+		TalsFetch:    make(map[string]*librpki.RPKITAL),
 		TalNames:     talNames,
 		UseManifest:  *UseManifest,
 		RsyncTimeout: timeoutDur,
@@ -1294,7 +1294,7 @@ func main() {
 
 		// HTTPs TAL
 		s.MainTAL(span)
-		s.TalsFetch = make(map[string]*librpki.RPKI_TAL) // clear decoded TAL for next iteration
+		s.TalsFetch = make(map[string]*librpki.RPKITAL) // clear decoded TAL for next iteration
 
 		t2 := time.Now().UTC()
 		MetricOperationTime.With(

@@ -277,7 +277,7 @@ func (v *Validator) AddResource(pkifile *PKIFile, data []byte) (bool, []*PKIFile
 		if pkifile != nil && pkifile.Parent != nil && pkifile.Parent.Type == TYPE_TAL {
 			talComp, ok := v.TALs[pkifile.Path]
 			if ok {
-				talValidation := talComp.Resource.(*librpki.RPKI_TAL).CheckCertificate(cert.Certificate)
+				talValidation := talComp.Resource.(*librpki.RPKITAL).CheckCertificate(cert.Certificate)
 				if !talValidation {
 					return false, nil, nil, errors.New("Certificate was not validated against TAL")
 				}
@@ -370,7 +370,7 @@ func (v *Validator) InvalidateObject(keyid []byte) {
 
 }
 
-func (v *Validator) AddTAL(tal *librpki.RPKI_TAL) ([]*PKIFile, *Resource, error) {
+func (v *Validator) AddTAL(tal *librpki.RPKITAL) ([]*PKIFile, *Resource, error) {
 	uri := tal.GetRsyncURI()
 	files := []*PKIFile{
 		&PKIFile{
