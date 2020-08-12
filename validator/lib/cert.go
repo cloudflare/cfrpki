@@ -863,31 +863,31 @@ func DecodeCertificate(data []byte) (*RPKICertificate, error) {
 		fmt.Print(err)
 		return nil, err
 	}
-	rpki_cert := RPKICertificate{
+	rpkiCert := RPKICertificate{
 		Certificate: cert,
 	}
 	for _, extension := range cert.Extensions {
 		if extension.Id.Equal(IpAddrBlock) {
 			addresses, err := DecodeIPAddressBlock(extension.Value)
-			rpki_cert.IPAddresses = addresses
+			rpkiCert.IPAddresses = addresses
 			if err != nil {
-				return &rpki_cert, err
+				return &rpkiCert, err
 			}
 		} else if extension.Id.Equal(AutonomousSysIds) {
 			asnsnum, asnsrdi, err := DecodeASN(extension.Value)
-			rpki_cert.ASNums = asnsnum
-			rpki_cert.ASNRDI = asnsrdi
+			rpkiCert.ASNums = asnsnum
+			rpkiCert.ASNRDI = asnsrdi
 			if err != nil {
-				return &rpki_cert, err
+				return &rpkiCert, err
 			}
 		} else if extension.Id.Equal(SubjectInfoAccess) {
 			sias, err := DecodeSubjectInformationAccess(extension.Value)
-			rpki_cert.SubjectInformationAccess = sias
+			rpkiCert.SubjectInformationAccess = sias
 			if err != nil {
-				return &rpki_cert, err
+				return &rpkiCert, err
 			}
 		}
 	}
 
-	return &rpki_cert, nil
+	return &rpkiCert, nil
 }
