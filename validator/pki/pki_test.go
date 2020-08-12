@@ -299,8 +299,8 @@ func TestPKI(t *testing.T) {
 	// ROA
 	t.Logf("Creating ROAs\n")
 	_, prefix, _ := net.ParseCIDR("10.0.0.0/24")
-	roaContent := []*librpki.ROA_Entry{
-		&librpki.ROA_Entry{
+	roaContent := []*librpki.ROAEntry{
+		&librpki.ROAEntry{
 			IPNet:     prefix,
 			MaxLength: 24,
 		},
