@@ -9,14 +9,16 @@ import (
 	"encoding/asn1"
 	"encoding/pem"
 	"errors"
-	"github.com/stretchr/testify/assert"
 	"math/big"
 	"net"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+
 	//"fmt"
 
-	"github.com/cloudflare/cfrpki/validator/lib"
+	librpki "github.com/cloudflare/cfrpki/validator/lib"
 )
 
 func CreateKeys() []*rsa.PrivateKey {
@@ -186,7 +188,7 @@ func TestPKI(t *testing.T) {
 	asnsBlock := []librpki.ASNCertificateInformation{
 		&librpki.ASNRange{
 			Min: 0,
-			Max: 4294967295,
+			Max: 1<<31 - 1,
 		},
 	}
 	asnExtension, err := librpki.EncodeASN(asnsBlock, nil)
