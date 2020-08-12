@@ -254,13 +254,13 @@ func DecodeROA(data []byte) (*RPKIROA, error) {
 	}
 	// Check for the correct Max Length
 
-	rpkiRoa := RPKIROA{
+	rpkiROA := RPKIROA{
 		BadFormat: badformat,
 		Entries:   entries,
 		ASN:       asn,
 	}
 
-	rpkiRoa.SigningTime, _ = c.GetSigningTime()
+	rpkiROA.SigningTime, _ = c.GetSigningTime()
 
 	cert, err := c.GetRPKICertificate()
 	if err != nil {
