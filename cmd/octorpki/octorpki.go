@@ -890,7 +890,7 @@ func (s *state) MainValidation(pSpan opentracing.Span) {
 
 		var counttal int
 		for _, obj := range manager[i].Validator.ValidROA {
-			roa := obj.Resource.(*librpki.RPKI_ROA)
+			roa := obj.Resource.(*librpki.RPKIROA)
 
 			for _, entry := range roa.Valids {
 				oroa := prefixfile.ROAJson{

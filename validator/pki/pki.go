@@ -53,7 +53,7 @@ func (res *Resource) GetIdentifier() (bool, []byte) {
 	switch res := res.Resource.(type) {
 	case *librpki.RPKICertificate:
 		return true, res.Certificate.SubjectKeyId
-	case *librpki.RPKI_ROA:
+	case *librpki.RPKIROA:
 		return true, res.Certificate.Certificate.SubjectKeyId
 	case *librpki.RPKIManifest:
 		return true, res.Certificate.Certificate.SubjectKeyId
@@ -513,7 +513,7 @@ func (v *Validator) ValidateCertificate(cert *librpki.RPKICertificate, trust boo
 	return nil
 }
 
-func (v *Validator) AddROA(pkifile *PKIFile, roa *librpki.RPKI_ROA) (bool, *Resource, error) {
+func (v *Validator) AddROA(pkifile *PKIFile, roa *librpki.RPKIROA) (bool, *Resource, error) {
 	valid, _, res, err := v.AddCert(roa.Certificate, false)
 	if res == nil {
 		return valid, res, errors.New(fmt.Sprintf("Resource is empty: %v", err))
@@ -553,7 +553,7 @@ func (v *Validator) AddROA(pkifile *PKIFile, roa *librpki.RPKI_ROA) (bool, *Reso
 	return valid, res_roa, err
 }
 
-func (v *Validator) ValidateROA(roa *librpki.RPKI_ROA) error {
+func (v *Validator) ValidateROA(roa *librpki.RPKIROA) error {
 	err := roa.ValidateEntries()
 	if err != nil {
 		return errors.New(fmt.Sprintf("Could not validate certificate due to wrong entry: %v", err))

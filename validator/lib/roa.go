@@ -38,7 +38,7 @@ type ROAEntry struct {
 	MaxLength int
 }
 
-type RPKI_ROA struct {
+type RPKIROA struct {
 	ASN         int
 	Entries     []*ROAEntry
 	Certificate *RPKICertificate
@@ -157,7 +157,7 @@ func (entry *ROAEntry) Validate() error {
 	return nil
 }
 
-func (roa *RPKI_ROA) ValidateTime(comp time.Time) error {
+func (roa *RPKIROA) ValidateTime(comp time.Time) error {
 	err := roa.Certificate.ValidateTime(comp)
 	if err != nil {
 		return errors.New(fmt.Sprintf("Could not validate certificate due to expiration date: %v", err))
@@ -165,7 +165,7 @@ func (roa *RPKI_ROA) ValidateTime(comp time.Time) error {
 	return nil
 }
 
-func (roa *RPKI_ROA) ValidateEntries() error {
+func (roa *RPKIROA) ValidateEntries() error {
 	for _, entry := range roa.Entries {
 		err := entry.Validate()
 		if err != nil {
@@ -193,7 +193,7 @@ func ValidateIPRoaCertificateList(entries []*ROAEntry, cert *RPKICertificate) ([
 	return valids, invalids, checkParents
 }
 
-func (roa *RPKI_ROA) ValidateIPRoaCertificate(cert *RPKICertificate) ([]*ROAEntry, []*ROAEntry, []*ROAEntry) {
+func (roa *RPKIROA) ValidateIPRoaCertificate(cert *RPKICertificate) ([]*ROAEntry, []*ROAEntry, []*ROAEntry) {
 	return ValidateIPRoaCertificateList(roa.Entries, cert)
 }
 
@@ -223,7 +223,7 @@ func ConvertROAEntries(roacontent ROAContent) ([]*ROAEntry, int, error) {
 	return entries, asn, nil
 }
 
-func DecodeROA(data []byte) (*RPKI_ROA, error) {
+func DecodeROA(data []byte) (*RPKIROA, error) {
 	c, err := DecodeCMS(data)
 	if err != nil {
 		return nil, err
@@ -254,7 +254,7 @@ func DecodeROA(data []byte) (*RPKI_ROA, error) {
 	}
 	// Check for the correct Max Length
 
-	rpki_roa := RPKI_ROA{
+	rpki_roa := RPKIROA{
 		BadFormat: badformat,
 		Entries:   entries,
 		ASN:       asn,
