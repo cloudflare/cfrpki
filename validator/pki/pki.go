@@ -55,7 +55,7 @@ func (res *Resource) GetIdentifier() (bool, []byte) {
 		return true, res.Certificate.SubjectKeyId
 	case *librpki.RPKI_ROA:
 		return true, res.Certificate.Certificate.SubjectKeyId
-	case *librpki.RPKI_Manifest:
+	case *librpki.RPKIManifest:
 		return true, res.Certificate.Certificate.SubjectKeyId
 	}
 	return false, nil
@@ -561,7 +561,7 @@ func (v *Validator) ValidateROA(roa *librpki.RPKI_ROA) error {
 	return nil
 }
 
-func (v *Validator) AddManifest(pkifile *PKIFile, mft *librpki.RPKI_Manifest) (bool, []*PKIFile, *Resource, error) {
+func (v *Validator) AddManifest(pkifile *PKIFile, mft *librpki.RPKIManifest) (bool, []*PKIFile, *Resource, error) {
 	pathCert := ExtractPathManifest(mft)
 
 	valid, _, res, err := v.AddCert(mft.Certificate, false)
@@ -716,7 +716,7 @@ func ExtractPathCert(cert *librpki.RPKI_Certificate) []*PKIFile {
 	return fileList
 }
 
-func ExtractPathManifest(mft *librpki.RPKI_Manifest) []*PKIFile {
+func ExtractPathManifest(mft *librpki.RPKIManifest) []*PKIFile {
 	fileList := make([]*PKIFile, 0)
 	for _, file := range mft.Content.FileList {
 		curFile := file.File

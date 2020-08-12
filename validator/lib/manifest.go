@@ -29,7 +29,7 @@ type Manifest struct {
 	EContent asn1.RawValue `asn1:"tag:0,explicit,optional"`
 }
 
-type RPKI_Manifest struct {
+type RPKIManifest struct {
 	Certificate        *RPKI_Certificate
 	Content            ManifestContent
 	BadFormat          bool
@@ -59,7 +59,7 @@ func EncodeManifestContent(eContent ManifestContent) (*Manifest, error) {
 	return mft, nil
 }
 
-func DecodeManifest(data []byte) (*RPKI_Manifest, error) {
+func DecodeManifest(data []byte) (*RPKIManifest, error) {
 	c, err := DecodeCMS(data)
 	if err != nil {
 		return nil, err
@@ -89,7 +89,7 @@ func DecodeManifest(data []byte) (*RPKI_Manifest, error) {
 		return nil, err
 	}
 
-	rpki_manifest := &RPKI_Manifest{
+	rpki_manifest := &RPKIManifest{
 		Content:   mc,
 		BadFormat: badformat}
 
