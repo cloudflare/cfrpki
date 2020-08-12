@@ -11,7 +11,7 @@ var (
 	ManifestOID = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 1, 26}
 )
 
-type FileList struct {
+type File struct {
 	File string `asn1:"ia5"`
 	Hash asn1.BitString
 }
@@ -21,7 +21,7 @@ type ManifestContent struct {
 	ThisUpdate     time.Time `asn1:"generalized"`
 	NextUpdate     time.Time `asn1:"generalized"`
 	FileHashAlg    asn1.ObjectIdentifier
-	FileList       []FileList
+	FileList       []File
 }
 
 type Manifest struct {

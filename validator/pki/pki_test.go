@@ -350,15 +350,15 @@ func TestPKI(t *testing.T) {
 		ThisUpdate:     time.Now().UTC(),
 		NextUpdate:     time.Now().UTC(),
 		FileHashAlg:    librpki.SHA256OID,
-		FileList: []librpki.FileList{
-			librpki.FileList{
+		FileList: []librpki.File{
+			librpki.File{
 				File: "test.roa",
 				Hash: asn1.BitString{
 					Bytes:     roahash[:],
 					BitLength: 256,
 				},
 			},
-			librpki.FileList{
+			librpki.File{
 				File: "test.crl",
 				Hash: asn1.BitString{
 					Bytes:     crlhash[:],
@@ -412,15 +412,15 @@ func TestPKI(t *testing.T) {
 		ThisUpdate:     time.Now().UTC(),
 		NextUpdate:     time.Now().UTC().Add(time.Hour * 48),
 		FileHashAlg:    librpki.SHA256OID,
-		FileList: []librpki.FileList{
-			librpki.FileList{
+		FileList: []librpki.File{
+			librpki.File{
 				File: "test.cer",
 				Hash: asn1.BitString{
 					Bytes:     orghash[:],
 					BitLength: 256,
 				},
 			},
-			librpki.FileList{
+			librpki.File{
 				File: "root.crl",
 				Hash: asn1.BitString{
 					Bytes:     orghash[:],
