@@ -19,7 +19,7 @@ type XMLContent struct {
 	Message interface{}
 }
 
-type RPKI_XML struct {
+type RPKIXML struct {
 	Content     []byte
 	Certificate *RPKICertificate
 
@@ -50,7 +50,7 @@ func EncodeXMLData(message []byte) (*XML, error) {
 	return xmlContent, nil
 }
 
-func DecodeXML(data []byte) (*RPKI_XML, error) {
+func DecodeXML(data []byte) (*RPKIXML, error) {
 	c, err := DecodeCMS(data)
 	if err != nil {
 		return nil, err
@@ -68,7 +68,7 @@ func DecodeXML(data []byte) (*RPKI_XML, error) {
 		return nil, err
 	}
 
-	var rpki_xml RPKI_XML
+	var rpki_xml RPKIXML
 	rpki_xml.Content = inner.Bytes
 
 	cert, err := c.GetRPKICertificate()
