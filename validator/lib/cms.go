@@ -55,7 +55,7 @@ type CMS struct {
 }
 
 // https://stackoverflow.com/questions/44852289/decrypt-with-public-key
-func RSA_public_decrypt(pubKey *rsa.PublicKey, data []byte) []byte {
+func RSAPublicDecrypt(pubKey *rsa.PublicKey, data []byte) []byte {
 	c := new(big.Int)
 	m := new(big.Int)
 	m.SetBytes(data)
@@ -150,7 +150,7 @@ type SignedAttributesDigest struct {
 }
 
 func DecryptSignatureRSA(signature []byte, pubKey *rsa.PublicKey) ([]byte, error) {
-	dataDecrypted := RSA_public_decrypt(pubKey, signature)
+	dataDecrypted := RSAPublicDecrypt(pubKey, signature)
 	var signDec SignatureDecoded
 	_, err := asn1.Unmarshal(dataDecrypted, &signDec)
 	if err != nil {
