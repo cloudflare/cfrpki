@@ -137,13 +137,13 @@ func GetRangeIP(ipnet *net.IPNet) (net.IP, net.IP) {
 	ip := ipnet.IP
 	mask := ipnet.Mask
 
-	begin_ip := make([]byte, len(ip))
-	end_ip := make([]byte, len(ip))
+	beginIP := make([]byte, len(ip))
+	endIP := make([]byte, len(ip))
 	for i := range []byte(ip) {
-		begin_ip[i] = ip[i] & mask[i]
-		end_ip[i] = ip[i] | ^mask[i]
+		beginIP[i] = ip[i] & mask[i]
+		endIP[i] = ip[i] | ^mask[i]
 	}
-	return net.IP(begin_ip), net.IP(end_ip)
+	return net.IP(beginIP), net.IP(endIP)
 }
 
 // https://tools.ietf.org/html/rfc6480#section-2.3
@@ -254,33 +254,33 @@ func DecodeROA(data []byte) (*RPKIROA, error) {
 	}
 	// Check for the correct Max Length
 
-	rpki_roa := RPKIROA{
+	rpkiRoa := RPKIROA{
 		BadFormat: badformat,
 		Entries:   entries,
 		ASN:       asn,
 	}
 
-	rpki_roa.SigningTime, _ = c.GetSigningTime()
+	rpkiRoa.SigningTime, _ = c.GetSigningTime()
 
 	cert, err := c.GetRPKICertificate()
 	if err != nil {
-		return &rpki_roa, err
+		return &rpkiROA, err
 	}
-	rpki_roa.Certificate = cert
+	rpkiROA.Certificate = cert
 
 	// Validate the content of the CMS
 	err = c.Validate(fullbytes, cert.Certificate)
 	if err != nil {
-		rpki_roa.InnerValidityError = err
+		rpkiROA.InnerValidityError = err
 	} else {
-		rpki_roa.InnerValid = true
+		rpkiROA.InnerValid = true
 	}
 
 	// Validates the actual IP addresses
-	validEntries, invalidEntries, checkParentEntries := rpki_roa.ValidateIPRoaCertificate(cert)
-	rpki_roa.Valids = validEntries
-	rpki_roa.Invalids = invalidEntries
-	rpki_roa.CheckParent = checkParentEntries
+	validEntries, invalidEntries, checkParentEntries := rpkiROA.ValidateIPRoaCertificate(cert)
+	rpkiROA.Valids = validEntries
+	rpkiROA.Invalids = invalidEntries
+	rpkiROA.CheckParent = checkParentEntries
 
-	return &rpki_roa, nil
+	return &rpkiROA, nil
 }

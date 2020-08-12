@@ -357,11 +357,11 @@ func BadFormatGroup(data []byte) ([]byte, bool, error) {
 }
 
 func (cms *CMS) GetRPKICertificate() (*RPKICertificate, error) {
-	rpki_cert, err := DecodeCertificate(cms.SignedData.Certificates.Bytes)
+	rpkiCert, err := DecodeCertificate(cms.SignedData.Certificates.Bytes)
 	if err != nil {
 		return nil, err
 	}
-	return rpki_cert, nil
+	return rpkiCert, nil
 }
 
 func (cms *CMS) GetSigningTime() (time.Time, error) {

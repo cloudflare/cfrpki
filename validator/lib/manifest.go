@@ -89,23 +89,23 @@ func DecodeManifest(data []byte) (*RPKIManifest, error) {
 		return nil, err
 	}
 
-	rpki_manifest := &RPKIManifest{
+	rpkiManfiest := &RPKIManifest{
 		Content:   mc,
 		BadFormat: badformat}
 
 	cert, err := c.GetRPKICertificate()
 	if err != nil {
-		return rpki_manifest, err
+		return rpkiManfiest, err
 	}
-	rpki_manifest.Certificate = cert
+	rpkiManfiest.Certificate = cert
 
 	// Validate the content of the CMS
 	err = c.Validate(fullbytes, cert.Certificate)
 	if err != nil {
-		rpki_manifest.InnerValidityError = err
+		rpkiManfiest.InnerValidityError = err
 	} else {
-		rpki_manifest.InnerValid = true
+		rpkiManfiest.InnerValid = true
 	}
 
-	return rpki_manifest, nil
+	return rpkiManfiest, nil
 }
