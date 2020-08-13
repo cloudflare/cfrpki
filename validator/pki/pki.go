@@ -719,7 +719,7 @@ func ExtractPathCert(cert *librpki.RPKICertificate) []*PKIFile {
 func ExtractPathManifest(mft *librpki.RPKIManifest) []*PKIFile {
 	fileList := make([]*PKIFile, 0)
 	for _, file := range mft.Content.FileList {
-		curFile := file.File
+		curFile := file.Name
 		path := string(curFile)
 		item := PKIFile{
 			Type: DetermineType(path),

@@ -12,7 +12,7 @@ var (
 )
 
 type File struct {
-	File string `asn1:"ia5"`
+	Name string `asn1:"ia5"`
 	Hash asn1.BitString
 }
 

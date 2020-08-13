@@ -354,14 +354,14 @@ func TestPKI(t *testing.T) {
 		FileHashAlg:    librpki.SHA256OID,
 		FileList: []librpki.File{
 			librpki.File{
-				File: "test.roa",
+				Name: "test.roa",
 				Hash: asn1.BitString{
 					Bytes:     roahash[:],
 					BitLength: 256,
 				},
 			},
 			librpki.File{
-				File: "test.crl",
+				Name: "test.crl",
 				Hash: asn1.BitString{
 					Bytes:     crlhash[:],
 					BitLength: 256,
@@ -416,14 +416,14 @@ func TestPKI(t *testing.T) {
 		FileHashAlg:    librpki.SHA256OID,
 		FileList: []librpki.File{
 			librpki.File{
-				File: "test.cer",
+				Name: "test.cer",
 				Hash: asn1.BitString{
 					Bytes:     orghash[:],
 					BitLength: 256,
 				},
 			},
 			librpki.File{
-				File: "root.crl",
+				Name: "root.crl",
 				Hash: asn1.BitString{
 					Bytes:     orghash[:],
 					BitLength: 256,
