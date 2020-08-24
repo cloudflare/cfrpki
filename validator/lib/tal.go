@@ -17,14 +17,14 @@ var (
 	RSA = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 1}
 )
 
-type RPKI_TAL struct {
+type RPKITAL struct {
 	URI       []string
 	Algorithm x509.PublicKeyAlgorithm
 	OID       asn1.ObjectIdentifier
 	PublicKey interface{}
 }
 
-func (tal *RPKI_TAL) HasRsync() bool {
+func (tal *RPKITAL) HasRsync() bool {
 	for _, url := range tal.URI {
 		if strings.HasPrefix(url, "rsync://") {
 			return true
@@ -35,7 +35,7 @@ func (tal *RPKI_TAL) HasRsync() bool {
 
 // Returns the rsync URL associated with the TAL certificate.
 // If it does not exist (http only), return a made up URI
-func (tal *RPKI_TAL) GetRsyncURI() string {
+func (tal *RPKITAL) GetRsyncURI() string {
 	var rsync string
 	var other string
 	for _, url := range tal.URI {
@@ -51,7 +51,7 @@ func (tal *RPKI_TAL) GetRsyncURI() string {
 	return rsync
 }
 
-func (tal *RPKI_TAL) GetURI() string {
+func (tal *RPKITAL) GetURI() string {
 	uri := "unknown"
 	if len(tal.URI) > 0 {
 		uri = tal.URI[0]
@@ -59,7 +59,7 @@ func (tal *RPKI_TAL) GetURI() string {
 	return uri
 }
 
-func (tal *RPKI_TAL) CheckCertificate(cert *x509.Certificate) bool {
+func (tal *RPKITAL) CheckCertificate(cert *x509.Certificate) bool {
 	if tal.Algorithm == cert.PublicKeyAlgorithm {
 		switch tal.Algorithm {
 		case x509.RSA:
@@ -83,7 +83,7 @@ func DeleteLineEnd(line string) string {
 	return line
 }
 
-func CreateTAL(uri []string, pubkey interface{}) (*RPKI_TAL, error) {
+func CreateTAL(uri []string, pubkey interface{}) (*RPKITAL, error) {
 	var pubkeyc interface{}
 	switch pubkeyt := pubkey.(type) {
 	case *rsa.PublicKey:
@@ -93,7 +93,7 @@ func CreateTAL(uri []string, pubkey interface{}) (*RPKI_TAL, error) {
 	default:
 		return nil, errors.New("Public key is not RSA")
 	}
-	return &RPKI_TAL{
+	return &RPKITAL{
 		URI:       uri,
 		Algorithm: x509.RSA,
 		OID:       RSA,
@@ -101,7 +101,7 @@ func CreateTAL(uri []string, pubkey interface{}) (*RPKI_TAL, error) {
 	}, nil
 }
 
-func EncodeTAL(tal *RPKI_TAL) ([]byte, error) {
+func EncodeTAL(tal *RPKITAL) ([]byte, error) {
 	return EncodeTALSize(tal, 64)
 }
 
@@ -135,7 +135,7 @@ func BundleRSAPublicKey(key rsa.PublicKey) (asn1.BitString, error) {
 
 }
 
-func EncodeTALSize(tal *RPKI_TAL, split int) ([]byte, error) {
+func EncodeTALSize(tal *RPKITAL, split int) ([]byte, error) {
 	var bs asn1.BitString
 	var err error
 	if tal.OID.Equal(RSA) {
@@ -186,7 +186,7 @@ func EncodeTALSize(tal *RPKI_TAL, split int) ([]byte, error) {
 	return []byte(fmt.Sprintf("%s\n\n%s", strings.Join(tal.URI, "\n"), key)), nil
 }
 
-func DecodeTAL(data []byte) (*RPKI_TAL, error) {
+func DecodeTAL(data []byte) (*RPKITAL, error) {
 	buf := bytes.NewBufferString(string(data))
 
 	var passedUrl bool
@@ -241,7 +241,7 @@ func DecodeTAL(data []byte) (*RPKI_TAL, error) {
 		return nil, err
 	}
 
-	tal := &RPKI_TAL{
+	tal := &RPKITAL{
 		URI: urls,
 		OID: inner.Type.OID,
 	}

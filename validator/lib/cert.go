@@ -422,7 +422,7 @@ func DecodeASN(data []byte) ([]ASNCertificateInformation, []ASNCertificateInform
 	return asnsnum, asnsrdi, nil
 }
 
-type RPKI_Certificate struct {
+type RPKICertificate struct {
 	SubjectInformationAccess []SIA
 	IPAddresses              []IPCertificateInformation
 	ASNums                   []ASNCertificateInformation
@@ -434,7 +434,7 @@ type RPKI_Certificate struct {
 	//AuthorityKeyIdentifier []byte
 }
 
-func (cert *RPKI_Certificate) IsIPRangeInCertificate(min net.IP, max net.IP) (bool, bool) {
+func (cert *RPKICertificate) IsIPRangeInCertificate(min net.IP, max net.IP) (bool, bool) {
 	for _, ip := range cert.IPAddresses {
 		minIn, checkParentMin := ip.IsIPInRange(min)
 		maxIn, checkParentMax := ip.IsIPInRange(max)
@@ -449,7 +449,7 @@ func (cert *RPKI_Certificate) IsIPRangeInCertificate(min net.IP, max net.IP) (bo
 	return false, false
 }
 
-func (cert *RPKI_Certificate) IsASRangeInCertificate(min int, max int) (bool, bool) {
+func (cert *RPKICertificate) IsASRangeInCertificate(min int, max int) (bool, bool) {
 	for _, asn := range cert.ASNums {
 		minIn, checkParentMin := asn.IsASNInRange(min)
 		maxIn, checkParentMax := asn.IsASNInRange(max)
@@ -464,7 +464,7 @@ func (cert *RPKI_Certificate) IsASRangeInCertificate(min int, max int) (bool, bo
 }
 
 // https://tools.ietf.org/html/rfc6487#section-7.2
-func ValidateIPCertificateList(list []IPCertificateInformation, parent *RPKI_Certificate) ([]IPCertificateInformation, []IPCertificateInformation, []IPCertificateInformation) {
+func ValidateIPCertificateList(list []IPCertificateInformation, parent *RPKICertificate) ([]IPCertificateInformation, []IPCertificateInformation, []IPCertificateInformation) {
 	valids := make([]IPCertificateInformation, 0)
 	invalids := make([]IPCertificateInformation, 0)
 	checkParents := make([]IPCertificateInformation, 0)
@@ -486,11 +486,11 @@ func ValidateIPCertificateList(list []IPCertificateInformation, parent *RPKI_Cer
 	return valids, invalids, checkParents
 }
 
-func (cert *RPKI_Certificate) ValidateIPCertificate(parent *RPKI_Certificate) ([]IPCertificateInformation, []IPCertificateInformation, []IPCertificateInformation) {
+func (cert *RPKICertificate) ValidateIPCertificate(parent *RPKICertificate) ([]IPCertificateInformation, []IPCertificateInformation, []IPCertificateInformation) {
 	return ValidateIPCertificateList(cert.IPAddresses, parent)
 }
 
-func ValidateASNCertificateList(list []ASNCertificateInformation, parent *RPKI_Certificate) ([]ASNCertificateInformation, []ASNCertificateInformation, []ASNCertificateInformation) {
+func ValidateASNCertificateList(list []ASNCertificateInformation, parent *RPKICertificate) ([]ASNCertificateInformation, []ASNCertificateInformation, []ASNCertificateInformation) {
 	valids := make([]ASNCertificateInformation, 0)
 	invalids := make([]ASNCertificateInformation, 0)
 	checkParents := make([]ASNCertificateInformation, 0)
@@ -512,11 +512,11 @@ func ValidateASNCertificateList(list []ASNCertificateInformation, parent *RPKI_C
 	return valids, invalids, checkParents
 }
 
-func (cert *RPKI_Certificate) ValidateASNCertificate(parent *RPKI_Certificate) ([]ASNCertificateInformation, []ASNCertificateInformation, []ASNCertificateInformation) {
+func (cert *RPKICertificate) ValidateASNCertificate(parent *RPKICertificate) ([]ASNCertificateInformation, []ASNCertificateInformation, []ASNCertificateInformation) {
 	return ValidateASNCertificateList(cert.ASNums, parent)
 }
 
-func (cert *RPKI_Certificate) Validate(parent *RPKI_Certificate) error {
+func (cert *RPKICertificate) Validate(parent *RPKICertificate) error {
 	if cert.Certificate == nil {
 		return errors.New("No certificate found")
 	}
@@ -530,7 +530,7 @@ func (cert *RPKI_Certificate) Validate(parent *RPKI_Certificate) error {
 	return nil
 }
 
-func (cert *RPKI_Certificate) ValidateTime(comp time.Time) error {
+func (cert *RPKICertificate) ValidateTime(comp time.Time) error {
 	if cert.Certificate == nil {
 		return errors.New("No certificate found")
 	}
@@ -543,7 +543,7 @@ func (cert *RPKI_Certificate) ValidateTime(comp time.Time) error {
 	return nil
 }
 
-func (cert *RPKI_Certificate) String() string {
+func (cert *RPKICertificate) String() string {
 	s := "RPKI Certificate: "
 
 	s += fmt.Sprintf("KeyIdentifier: %v / Emitter: %v",
@@ -856,38 +856,38 @@ func EncodeSIA(sias []*SIA) (*pkix.Extension, error) {
 	return ext, nil
 }
 
-func DecodeCertificate(data []byte) (*RPKI_Certificate, error) {
+func DecodeCertificate(data []byte) (*RPKICertificate, error) {
 	cert, err := x509.ParseCertificate(data)
 
 	if err != nil {
 		fmt.Print(err)
 		return nil, err
 	}
-	rpki_cert := RPKI_Certificate{
+	rpkiCert := RPKICertificate{
 		Certificate: cert,
 	}
 	for _, extension := range cert.Extensions {
 		if extension.Id.Equal(IpAddrBlock) {
 			addresses, err := DecodeIPAddressBlock(extension.Value)
-			rpki_cert.IPAddresses = addresses
+			rpkiCert.IPAddresses = addresses
 			if err != nil {
-				return &rpki_cert, err
+				return &rpkiCert, err
 			}
 		} else if extension.Id.Equal(AutonomousSysIds) {
 			asnsnum, asnsrdi, err := DecodeASN(extension.Value)
-			rpki_cert.ASNums = asnsnum
-			rpki_cert.ASNRDI = asnsrdi
+			rpkiCert.ASNums = asnsnum
+			rpkiCert.ASNRDI = asnsrdi
 			if err != nil {
-				return &rpki_cert, err
+				return &rpkiCert, err
 			}
 		} else if extension.Id.Equal(SubjectInfoAccess) {
 			sias, err := DecodeSubjectInformationAccess(extension.Value)
-			rpki_cert.SubjectInformationAccess = sias
+			rpkiCert.SubjectInformationAccess = sias
 			if err != nil {
-				return &rpki_cert, err
+				return &rpkiCert, err
 			}
 		}
 	}
 
-	return &rpki_cert, nil
+	return &rpkiCert, nil
 }

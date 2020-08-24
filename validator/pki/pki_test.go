@@ -9,14 +9,16 @@ import (
 	"encoding/asn1"
 	"encoding/pem"
 	"errors"
-	"github.com/stretchr/testify/assert"
 	"math/big"
 	"net"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+
 	//"fmt"
 
-	"github.com/cloudflare/cfrpki/validator/lib"
+	librpki "github.com/cloudflare/cfrpki/validator/lib"
 )
 
 func CreateKeys() []*rsa.PrivateKey {
@@ -92,7 +94,7 @@ func Validate(talPath string, fs FileSeeker) int {
 
 	var count int
 	for _, roa := range manager.Validator.ValidROA {
-		d := roa.Resource.(*librpki.RPKI_ROA)
+		d := roa.Resource.(*librpki.RPKIROA)
 		count += len(d.Valids)
 		/* for _, entry := range d.Valids {
 		    fmt.Printf("Found ROA: AS%v %v-%v (%v)", d.ASN, entry.IPNet.String(), entry.MaxLength, manager.PathOfResource[roa].ComputePath())
@@ -186,7 +188,7 @@ func TestPKI(t *testing.T) {
 	asnsBlock := []librpki.ASNCertificateInformation{
 		&librpki.ASNRange{
 			Min: 0,
-			Max: 4294967295,
+			Max: 1<<31 - 1,
 		},
 	}
 	asnExtension, err := librpki.EncodeASN(asnsBlock, nil)
@@ -297,8 +299,8 @@ func TestPKI(t *testing.T) {
 	// ROA
 	t.Logf("Creating ROAs\n")
 	_, prefix, _ := net.ParseCIDR("10.0.0.0/24")
-	roaContent := []*librpki.ROA_Entry{
-		&librpki.ROA_Entry{
+	roaContent := []*librpki.ROAEntry{
+		&librpki.ROAEntry{
 			IPNet:     prefix,
 			MaxLength: 24,
 		},
@@ -350,16 +352,16 @@ func TestPKI(t *testing.T) {
 		ThisUpdate:     time.Now().UTC(),
 		NextUpdate:     time.Now().UTC(),
 		FileHashAlg:    librpki.SHA256OID,
-		FileList: []librpki.FileList{
-			librpki.FileList{
-				File: "test.roa",
+		FileList: []librpki.File{
+			librpki.File{
+				Name: "test.roa",
 				Hash: asn1.BitString{
 					Bytes:     roahash[:],
 					BitLength: 256,
 				},
 			},
-			librpki.FileList{
-				File: "test.crl",
+			librpki.File{
+				Name: "test.crl",
 				Hash: asn1.BitString{
 					Bytes:     crlhash[:],
 					BitLength: 256,
@@ -412,16 +414,16 @@ func TestPKI(t *testing.T) {
 		ThisUpdate:     time.Now().UTC(),
 		NextUpdate:     time.Now().UTC().Add(time.Hour * 48),
 		FileHashAlg:    librpki.SHA256OID,
-		FileList: []librpki.FileList{
-			librpki.FileList{
-				File: "test.cer",
+		FileList: []librpki.File{
+			librpki.File{
+				Name: "test.cer",
 				Hash: asn1.BitString{
 					Bytes:     orghash[:],
 					BitLength: 256,
 				},
 			},
-			librpki.FileList{
-				File: "root.crl",
+			librpki.File{
+				Name: "root.crl",
 				Hash: asn1.BitString{
 					Bytes:     orghash[:],
 					BitLength: 256,

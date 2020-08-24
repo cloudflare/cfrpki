@@ -121,7 +121,7 @@ func main() {
 		skiToAki := make(map[string]string)
 		skiToPath := make(map[string]*pki.PKIFile)
 		for _, obj := range manager.Validator.ValidObjects {
-			res := obj.Resource.(*librpki.RPKI_Certificate)
+			res := obj.Resource.(*librpki.RPKICertificate)
 			ski := hex.EncodeToString(res.Certificate.SubjectKeyId)
 			aki := hex.EncodeToString(res.Certificate.AuthorityKeyId)
 			skiToAki[ski] = aki

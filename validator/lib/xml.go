@@ -19,9 +19,9 @@ type XMLContent struct {
 	Message interface{}
 }
 
-type RPKI_XML struct {
+type RPKIXML struct {
 	Content     []byte
-	Certificate *RPKI_Certificate
+	Certificate *RPKICertificate
 
 	InnerValid         bool
 	InnerValidityError error
@@ -50,7 +50,7 @@ func EncodeXMLData(message []byte) (*XML, error) {
 	return xmlContent, nil
 }
 
-func DecodeXML(data []byte) (*RPKI_XML, error) {
+func DecodeXML(data []byte) (*RPKIXML, error) {
 	c, err := DecodeCMS(data)
 	if err != nil {
 		return nil, err
@@ -68,21 +68,21 @@ func DecodeXML(data []byte) (*RPKI_XML, error) {
 		return nil, err
 	}
 
-	var rpki_xml RPKI_XML
-	rpki_xml.Content = inner.Bytes
+	var rpkiXML RPKIXML
+	rpkiXML.Content = inner.Bytes
 
 	cert, err := c.GetRPKICertificate()
 	if err != nil {
-		return &rpki_xml, err
+		return &rpkiXML, err
 	}
-	rpki_xml.Certificate = cert
+	rpkiXML.Certificate = cert
 
 	err = c.Validate(inner.Bytes, cert.Certificate)
 	if err != nil {
-		rpki_xml.InnerValidityError = err
+		rpkiXML.InnerValidityError = err
 	} else {
-		rpki_xml.InnerValid = true
+		rpkiXML.InnerValid = true
 	}
 
-	return &rpki_xml, nil
+	return &rpkiXML, nil
 }

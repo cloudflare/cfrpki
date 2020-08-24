@@ -11,8 +11,8 @@ var (
 	ManifestOID = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 1, 26}
 )
 
-type FileList struct {
-	File string `asn1:"ia5"`
+type File struct {
+	Name string `asn1:"ia5"`
 	Hash asn1.BitString
 }
 
@@ -21,7 +21,7 @@ type ManifestContent struct {
 	ThisUpdate     time.Time `asn1:"generalized"`
 	NextUpdate     time.Time `asn1:"generalized"`
 	FileHashAlg    asn1.ObjectIdentifier
-	FileList       []FileList
+	FileList       []File
 }
 
 type Manifest struct {
@@ -29,8 +29,8 @@ type Manifest struct {
 	EContent asn1.RawValue `asn1:"tag:0,explicit,optional"`
 }
 
-type RPKI_Manifest struct {
-	Certificate        *RPKI_Certificate
+type RPKIManifest struct {
+	Certificate        *RPKICertificate
 	Content            ManifestContent
 	BadFormat          bool
 	InnerValid         bool
@@ -59,7 +59,7 @@ func EncodeManifestContent(eContent ManifestContent) (*Manifest, error) {
 	return mft, nil
 }
 
-func DecodeManifest(data []byte) (*RPKI_Manifest, error) {
+func DecodeManifest(data []byte) (*RPKIManifest, error) {
 	c, err := DecodeCMS(data)
 	if err != nil {
 		return nil, err
@@ -89,23 +89,23 @@ func DecodeManifest(data []byte) (*RPKI_Manifest, error) {
 		return nil, err
 	}
 
-	rpki_manifest := &RPKI_Manifest{
+	rpkiManfiest := &RPKIManifest{
 		Content:   mc,
 		BadFormat: badformat}
 
 	cert, err := c.GetRPKICertificate()
 	if err != nil {
-		return rpki_manifest, err
+		return rpkiManfiest, err
 	}
-	rpki_manifest.Certificate = cert
+	rpkiManfiest.Certificate = cert
 
 	// Validate the content of the CMS
 	err = c.Validate(fullbytes, cert.Certificate)
 	if err != nil {
-		rpki_manifest.InnerValidityError = err
+		rpkiManfiest.InnerValidityError = err
 	} else {
-		rpki_manifest.InnerValid = true
+		rpkiManfiest.InnerValid = true
 	}
 
-	return rpki_manifest, nil
+	return rpkiManfiest, nil
 }

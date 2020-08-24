@@ -85,7 +85,7 @@ func main() {
 		manager.Explore(!*UseManifest, false)
 
 		for _, roa := range manager.Validator.ValidROA {
-			d := roa.Resource.(*librpki.RPKI_ROA)
+			d := roa.Resource.(*librpki.RPKIROA)
 			for _, entry := range d.Valids {
 				oroa := OutputROA{
 					ASN:       fmt.Sprintf("AS%v", d.ASN),

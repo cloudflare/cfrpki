@@ -3,13 +3,15 @@ package librpki
 import (
 	"net"
 	"testing"
+
 	//"encoding/asn1"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"github.com/stretchr/testify/assert"
 	"math/big"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func MakeSIA() []*SIA {
@@ -67,11 +69,11 @@ func MakeASN(null bool) []ASNCertificateInformation {
 	return []ASNCertificateInformation{
 		&ASNRange{
 			Min: 0,
-			Max: 4294967295,
+			Max: 1<<31 - 1,
 		},
 		&ASNRange{
 			Min: 0,
-			Max: 4294967295,
+			Max: 1<<31 - 1,
 		},
 		&ASN{
 			ASN: 65001,

@@ -33,32 +33,32 @@ type ROA struct {
 	EContent asn1.RawValue `asn1:"tag:0,explicit,optional"`
 }
 
-type ROA_Entry struct {
+type ROAEntry struct {
 	IPNet     *net.IPNet
 	MaxLength int
 }
 
-type RPKI_ROA struct {
+type RPKIROA struct {
 	ASN         int
-	Entries     []*ROA_Entry
-	Certificate *RPKI_Certificate
+	Entries     []*ROAEntry
+	Certificate *RPKICertificate
 	BadFormat   bool
 	SigningTime time.Time
 
 	InnerValid         bool
 	InnerValidityError error
 
-	Valids      []*ROA_Entry
-	Invalids    []*ROA_Entry
-	CheckParent []*ROA_Entry
+	Valids      []*ROAEntry
+	Invalids    []*ROAEntry
+	CheckParent []*ROAEntry
 }
 
 func ROAToEncap(roa *ROA) ([]byte, error) {
 	return EContentToEncap(roa.EContent.FullBytes)
 }
 
-func GroupEntries(entries []*ROA_Entry) map[byte][]*ROA_Entry {
-	mapIps := make(map[byte][]*ROA_Entry)
+func GroupEntries(entries []*ROAEntry) map[byte][]*ROAEntry {
+	mapIps := make(map[byte][]*ROAEntry)
 	for _, entry := range entries {
 		afi := byte(2)
 		if entry.IPNet.IP.To4() != nil {
@@ -67,7 +67,7 @@ func GroupEntries(entries []*ROA_Entry) map[byte][]*ROA_Entry {
 
 		ipsList, ok := mapIps[afi]
 		if !ok {
-			ipsList = make([]*ROA_Entry, 0)
+			ipsList = make([]*ROAEntry, 0)
 		}
 		ipsList = append(ipsList, entry)
 
@@ -76,7 +76,7 @@ func GroupEntries(entries []*ROA_Entry) map[byte][]*ROA_Entry {
 	return mapIps
 }
 
-func EncodeROAEntries(asn int, entries []*ROA_Entry) (*ROA, error) {
+func EncodeROAEntries(asn int, entries []*ROAEntry) (*ROA, error) {
 	groups := GroupEntries(entries)
 
 	versionList := make([]int, 0)
@@ -137,19 +137,19 @@ func GetRangeIP(ipnet *net.IPNet) (net.IP, net.IP) {
 	ip := ipnet.IP
 	mask := ipnet.Mask
 
-	begin_ip := make([]byte, len(ip))
-	end_ip := make([]byte, len(ip))
+	beginIP := make([]byte, len(ip))
+	endIP := make([]byte, len(ip))
 	for i := range []byte(ip) {
-		begin_ip[i] = ip[i] & mask[i]
-		end_ip[i] = ip[i] | ^mask[i]
+		beginIP[i] = ip[i] & mask[i]
+		endIP[i] = ip[i] | ^mask[i]
 	}
-	return net.IP(begin_ip), net.IP(end_ip)
+	return net.IP(beginIP), net.IP(endIP)
 }
 
 // https://tools.ietf.org/html/rfc6480#section-2.3
 // https://tools.ietf.org/html/rfc6482#section-4
 
-func (entry *ROA_Entry) Validate() error {
+func (entry *ROAEntry) Validate() error {
 	s, _ := entry.IPNet.Mask.Size()
 	if entry.MaxLength < s {
 		return errors.New(fmt.Sprintf("Max length (%v) is smaller than prefix length (%v)", entry.MaxLength, s))
@@ -157,7 +157,7 @@ func (entry *ROA_Entry) Validate() error {
 	return nil
 }
 
-func (roa *RPKI_ROA) ValidateTime(comp time.Time) error {
+func (roa *RPKIROA) ValidateTime(comp time.Time) error {
 	err := roa.Certificate.ValidateTime(comp)
 	if err != nil {
 		return errors.New(fmt.Sprintf("Could not validate certificate due to expiration date: %v", err))
@@ -165,7 +165,7 @@ func (roa *RPKI_ROA) ValidateTime(comp time.Time) error {
 	return nil
 }
 
-func (roa *RPKI_ROA) ValidateEntries() error {
+func (roa *RPKIROA) ValidateEntries() error {
 	for _, entry := range roa.Entries {
 		err := entry.Validate()
 		if err != nil {
@@ -175,10 +175,10 @@ func (roa *RPKI_ROA) ValidateEntries() error {
 	return nil
 }
 
-func ValidateIPRoaCertificateList(entries []*ROA_Entry, cert *RPKI_Certificate) ([]*ROA_Entry, []*ROA_Entry, []*ROA_Entry) {
-	valids := make([]*ROA_Entry, 0)
-	invalids := make([]*ROA_Entry, 0)
-	checkParents := make([]*ROA_Entry, 0)
+func ValidateIPRoaCertificateList(entries []*ROAEntry, cert *RPKICertificate) ([]*ROAEntry, []*ROAEntry, []*ROAEntry) {
+	valids := make([]*ROAEntry, 0)
+	invalids := make([]*ROAEntry, 0)
+	checkParents := make([]*ROAEntry, 0)
 	for _, entry := range entries {
 		min, max := GetRangeIP(entry.IPNet)
 		valid, checkParent := cert.IsIPRangeInCertificate(min, max)
@@ -193,12 +193,12 @@ func ValidateIPRoaCertificateList(entries []*ROA_Entry, cert *RPKI_Certificate) 
 	return valids, invalids, checkParents
 }
 
-func (roa *RPKI_ROA) ValidateIPRoaCertificate(cert *RPKI_Certificate) ([]*ROA_Entry, []*ROA_Entry, []*ROA_Entry) {
+func (roa *RPKIROA) ValidateIPRoaCertificate(cert *RPKICertificate) ([]*ROAEntry, []*ROAEntry, []*ROAEntry) {
 	return ValidateIPRoaCertificateList(roa.Entries, cert)
 }
 
-func ConvertROAEntries(roacontent ROAContent) ([]*ROA_Entry, int, error) {
-	entries := make([]*ROA_Entry, 0)
+func ConvertROAEntries(roacontent ROAContent) ([]*ROAEntry, int, error) {
+	entries := make([]*ROAEntry, 0)
 	asn := roacontent.ASID
 	//fmt.Printf("ROAContent %v %v AS: %v\n", len(fullbytes), err, roacontent.ASID)
 	for _, addrblock := range roacontent.IpAddrBlocks {
@@ -213,7 +213,7 @@ func ConvertROAEntries(roacontent ROAContent) ([]*ROA_Entry, int, error) {
 				maxlength, _ = ip.Mask.Size()
 			}
 			//fmt.Printf(" - %v %v\n", ip, err)
-			re := &ROA_Entry{
+			re := &ROAEntry{
 				IPNet:     ip,
 				MaxLength: maxlength,
 			}
@@ -223,7 +223,7 @@ func ConvertROAEntries(roacontent ROAContent) ([]*ROA_Entry, int, error) {
 	return entries, asn, nil
 }
 
-func DecodeROA(data []byte) (*RPKI_ROA, error) {
+func DecodeROA(data []byte) (*RPKIROA, error) {
 	c, err := DecodeCMS(data)
 	if err != nil {
 		return nil, err
@@ -254,33 +254,33 @@ func DecodeROA(data []byte) (*RPKI_ROA, error) {
 	}
 	// Check for the correct Max Length
 
-	rpki_roa := RPKI_ROA{
+	rpkiROA := RPKIROA{
 		BadFormat: badformat,
 		Entries:   entries,
 		ASN:       asn,
 	}
 
-	rpki_roa.SigningTime, _ = c.GetSigningTime()
+	rpkiROA.SigningTime, _ = c.GetSigningTime()
 
 	cert, err := c.GetRPKICertificate()
 	if err != nil {
-		return &rpki_roa, err
+		return &rpkiROA, err
 	}
-	rpki_roa.Certificate = cert
+	rpkiROA.Certificate = cert
 
 	// Validate the content of the CMS
 	err = c.Validate(fullbytes, cert.Certificate)
 	if err != nil {
-		rpki_roa.InnerValidityError = err
+		rpkiROA.InnerValidityError = err
 	} else {
-		rpki_roa.InnerValid = true
+		rpkiROA.InnerValid = true
 	}
 
 	// Validates the actual IP addresses
-	validEntries, invalidEntries, checkParentEntries := rpki_roa.ValidateIPRoaCertificate(cert)
-	rpki_roa.Valids = validEntries
-	rpki_roa.Invalids = invalidEntries
-	rpki_roa.CheckParent = checkParentEntries
+	validEntries, invalidEntries, checkParentEntries := rpkiROA.ValidateIPRoaCertificate(cert)
+	rpkiROA.Valids = validEntries
+	rpkiROA.Invalids = invalidEntries
+	rpkiROA.CheckParent = checkParentEntries
 
-	return &rpki_roa, nil
+	return &rpkiROA, nil
 }

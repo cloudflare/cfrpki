@@ -21,16 +21,16 @@ func MakeMFTContent() ManifestContent {
 		ThisUpdate:     time.Now().UTC(),
 		NextUpdate:     time.Now().UTC(),
 		FileHashAlg:    SHA256OID,
-		FileList: []FileList{
-			FileList{
-				File: "test.roa",
+		FileList: []File{
+			File{
+				Name: "test.roa",
 				Hash: asn1.BitString{
 					Bytes:     roahash[:],
 					BitLength: 256,
 				},
 			},
-			FileList{
-				File: "test.crl",
+			File{
+				Name: "test.crl",
 				Hash: asn1.BitString{
 					Bytes:     crlhash[:],
 					BitLength: 256,

@@ -213,7 +213,7 @@ type Stats struct {
 type state struct {
 	Basepath     string
 	Tals         []*pki.PKIFile
-	TalsFetch    map[string]*librpki.RPKI_TAL
+	TalsFetch    map[string]*librpki.RPKITAL
 	TalNames     []string
 	UseManifest  bool
 	RsyncBin     string
@@ -823,7 +823,7 @@ func (s *state) MainValidation(pSpan opentracing.Span) {
 		// Insertion of SIAs in db to allow rsync to update the repos
 		var count int
 		for _, obj := range manager[i].Validator.TALs {
-			tal := obj.Resource.(*librpki.RPKI_TAL)
+			tal := obj.Resource.(*librpki.RPKITAL)
 			//s.RsyncFetch[tal.GetURI()] = time.Now().UTC()
 			if !obj.CertTALValid {
 				s.TalsFetch[obj.File.Path] = tal
@@ -832,7 +832,7 @@ func (s *state) MainValidation(pSpan opentracing.Span) {
 		}
 		for _, obj := range manager[i].Validator.ValidObjects {
 			if obj.Type == pki.TYPE_CER {
-				cer := obj.Resource.(*librpki.RPKI_Certificate)
+				cer := obj.Resource.(*librpki.RPKICertificate)
 				var RsyncGN string
 				var RRDPGN string
 				var hasRRDP bool
@@ -890,7 +890,7 @@ func (s *state) MainValidation(pSpan opentracing.Span) {
 
 		var counttal int
 		for _, obj := range manager[i].Validator.ValidROA {
-			roa := obj.Resource.(*librpki.RPKI_ROA)
+			roa := obj.Resource.(*librpki.RPKIROA)
 
 			for _, entry := range roa.Valids {
 				oroa := prefixfile.ROAJson{
@@ -1180,7 +1180,7 @@ func main() {
 	s := &state{
 		Basepath:     *Basepath,
 		Tals:         tals,
-		TalsFetch:    make(map[string]*librpki.RPKI_TAL),
+		TalsFetch:    make(map[string]*librpki.RPKITAL),
 		TalNames:     talNames,
 		UseManifest:  *UseManifest,
 		RsyncTimeout: timeoutDur,
@@ -1294,7 +1294,7 @@ func main() {
 
 		// HTTPs TAL
 		s.MainTAL(span)
-		s.TalsFetch = make(map[string]*librpki.RPKI_TAL) // clear decoded TAL for next iteration
+		s.TalsFetch = make(map[string]*librpki.RPKITAL) // clear decoded TAL for next iteration
 
 		t2 := time.Now().UTC()
 		MetricOperationTime.With(

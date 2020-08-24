@@ -13,10 +13,10 @@ import (
 	"time"
 )
 
-func MakeROAEntries() []*ROA_Entry {
+func MakeROAEntries() []*ROAEntry {
 	_, prefix, _ := net.ParseCIDR("10.0.0.0/20")
-	return []*ROA_Entry{
-		&ROA_Entry{
+	return []*ROAEntry{
+		&ROAEntry{
 			IPNet:     prefix,
 			MaxLength: 20,
 		},
