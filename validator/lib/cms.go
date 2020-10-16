@@ -326,7 +326,6 @@ func (cms *CMS) CheckSignaturesMatch() (bool, error) {
 	} else {
 		return false, nil
 	}
-	return false, nil
 }
 
 // Won't validate if signedattributes is empty
