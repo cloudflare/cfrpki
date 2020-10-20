@@ -198,6 +198,8 @@ type Validator struct {
 	ValidManifest map[string]*Resource // Make sure EE certificates are unique for a ROA
 	Manifest      map[string]*Resource
 
+	DecoderConfig *librpki.DecoderConfig
+
 	Time time.Time
 }
 
@@ -219,6 +221,8 @@ func NewValidator() *Validator {
 
 		ValidManifest: make(map[string]*Resource),
 		Manifest:      make(map[string]*Resource),
+
+		DecoderConfig: librpki.DefaultDecoderConfig,
 
 		Time: time.Now().UTC(),
 	}
@@ -296,7 +300,7 @@ func (v *Validator) AddResource(pkifile *PKIFile, data []byte) (bool, []*PKIFile
 		}
 		return valid, pathCert, res, err
 	case TYPE_ROA:
-		roa, err := librpki.DecodeROA(data)
+		roa, err := v.DecoderConfig.DecodeROA(data)
 		if err != nil {
 			return false, nil, nil, err
 		}
@@ -307,7 +311,7 @@ func (v *Validator) AddResource(pkifile *PKIFile, data []byte) (bool, []*PKIFile
 		res.File = pkifile
 		return valid, nil, res, err
 	case TYPE_MFT:
-		mft, err := librpki.DecodeManifest(data)
+		mft, err := v.DecoderConfig.DecodeManifest(data)
 		if err != nil {
 			return false, nil, nil, err
 		}
