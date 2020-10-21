@@ -73,7 +73,14 @@ func main() {
 		manager := pki.NewSimpleManager()
 		manager.Validator = validator
 		manager.FileSeeker = &s
+		manager.ReportErrors = true
 		manager.Log = log.StandardLogger()
+
+		go func(sm *pki.SimpleManager) {
+			for err := range sm.Errors {
+				log.Error(err)
+			}
+		}(manager)
 
 		manager.AddInitial([]*pki.PKIFile{
 			&pki.PKIFile{
