@@ -91,6 +91,8 @@ type SimpleManager struct {
 
 	ReportErrors bool
 	Errors       chan error
+
+	StrictManifests bool
 }
 
 func NewSimpleManager() *SimpleManager {
@@ -100,6 +102,7 @@ func NewSimpleManager() *SimpleManager {
 		Explored:        make(map[string]bool),
 		ToExploreUnique: make(map[string]bool),
 		Errors:          make(chan error, 50),
+		StrictManifests: true,
 	}
 }
 
@@ -742,9 +745,32 @@ func (sm *SimpleManager) AddInitial(fileList []*PKIFile) {
 	sm.PutFiles(fileList)
 }
 
+// Given a file, invalidates the certificate parent of the Manifest in which the file is listed in
+func (sm *SimpleManager) InvalidateManifestParent(file *PKIFile) {
+	if file.Parent.Type == TYPE_MFT && file.Parent.Parent != nil && file.Parent.Parent.Type == TYPE_CER {
+		res, ok := sm.ResourceOfPath[file.Parent.Parent]
+
+		if ok && res != nil && res.Resource != nil {
+			cert, ok := res.Resource.(*librpki.RPKICertificate)
+			if ok {
+				sm.Validator.InvalidateObject(cert.Certificate.SubjectKeyId)
+			} else {
+				sm.Log.Debugf("Could not invalidate certificate because incorrect resource")
+			}
+		} else {
+			sm.Log.Debugf("Could not invalidate certificate because not found in list")
+		}
+	}
+}
 func (sm *SimpleManager) ExploreAdd(file *PKIFile, data *SeekFile, addInvalidChilds bool) {
 	sm.Explored[file.ComputePath()] = true
 	valid, subFiles, res, err := sm.Validator.AddResource(file, data.Data)
+
+	if !valid || err != nil {
+		if sm.StrictManifests {
+			sm.InvalidateManifestParent(file)
+		}
+	}
 
 	if err != nil {
 		if sm.Log != nil {
@@ -792,20 +818,9 @@ func (sm *SimpleManager) Explore(notMFT bool, addInvalidChilds bool) int {
 				hasMore = sm.HasMore()
 			} else { // data == nil && err == nil -> file was not found
 
-				if file.Parent != nil && file.Parent.Type == TYPE_MFT && file.Parent.Parent != nil && file.Parent.Parent.Type == TYPE_CER { // && sm.StrictManifests
-					res, ok := sm.ResourceOfPath[file.Parent.Parent]
-
-					if ok && res != nil && res.Resource != nil {
-						cert, ok := res.Resource.(*librpki.RPKICertificate)
-						if ok {
-							sm.Validator.InvalidateObject(cert.Certificate.SubjectKeyId)
-						} else {
-							sm.Log.Debugf("Could not invalidate certificate because incorrect resource")
-						}
-					} else {
-						sm.Log.Debugf("Could not invalidate certificate because not found in list")
-					}
-
+				// This invalidates the Manifests' CA when a file is not found
+				if sm.StrictManifests {
+					sm.InvalidateManifestParent(file)
 				}
 
 				if sm.Log != nil {
