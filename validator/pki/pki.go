@@ -81,6 +81,7 @@ type Log interface {
 
 type SimpleManager struct {
 	PathOfResource  map[*Resource]*PKIFile
+	ResourceOfPath  map[*PKIFile]*Resource
 	ToExplore       []*PKIFile
 	FileSeeker      FileSeeker
 	Validator       *Validator
@@ -95,6 +96,7 @@ type SimpleManager struct {
 func NewSimpleManager() *SimpleManager {
 	return &SimpleManager{
 		PathOfResource:  make(map[*Resource]*PKIFile),
+		ResourceOfPath:  make(map[*PKIFile]*Resource),
 		Explored:        make(map[string]bool),
 		ToExploreUnique: make(map[string]bool),
 		Errors:          make(chan error, 50),
@@ -320,6 +322,7 @@ func (v *Validator) AddResource(pkifile *PKIFile, data []byte) (bool, []*PKIFile
 			return valid, nil, res, errors.New(fmt.Sprintf("Resource is empty: %v", err))
 		}
 		res.File = pkifile
+		// add the parent information to invalidate the Manifest in case of an issue
 		for _, pc := range pathCert {
 			pc.Parent = pkifile
 		}
@@ -720,6 +723,7 @@ func ExtractPathCert(cert *librpki.RPKICertificate) []*PKIFile {
 	return fileList
 }
 
+// Returns the list of files from the Manifest
 func ExtractPathManifest(mft *librpki.RPKIManifest) []*PKIFile {
 	fileList := make([]*PKIFile, 0)
 	for _, file := range mft.Content.FileList {
@@ -757,6 +761,7 @@ func (sm *SimpleManager) ExploreAdd(file *PKIFile, data *SeekFile, addInvalidChi
 	if addInvalidChilds || valid {
 		sm.PutFiles(subFiles)
 		sm.PathOfResource[res] = file
+		sm.ResourceOfPath[file] = res
 	}
 }
 
@@ -785,7 +790,24 @@ func (sm *SimpleManager) Explore(notMFT bool, addInvalidChilds bool) int {
 			} else if data != nil {
 				sm.ExploreAdd(file, data, addInvalidChilds)
 				hasMore = sm.HasMore()
-			} else {
+			} else { // data == nil && err == nil -> file was not found
+
+				if file.Parent != nil && file.Parent.Type == TYPE_MFT && file.Parent.Parent != nil && file.Parent.Parent.Type == TYPE_CER { // && sm.StrictManifests
+					res, ok := sm.ResourceOfPath[file.Parent.Parent]
+
+					if ok && res != nil && res.Resource != nil {
+						cert, ok := res.Resource.(*librpki.RPKICertificate)
+						if ok {
+							sm.Validator.InvalidateObject(cert.Certificate.SubjectKeyId)
+						} else {
+							sm.Log.Debugf("Could not invalidate certificate because incorrect resource")
+						}
+					} else {
+						sm.Log.Debugf("Could not invalidate certificate because not found in list")
+					}
+
+				}
+
 				if sm.Log != nil {
 					sm.Log.Debugf("GetNextFile returned nothing")
 				}
