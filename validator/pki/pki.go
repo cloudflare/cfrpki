@@ -791,7 +791,7 @@ func (sm *SimpleManager) InvalidateManifestParent(file *PKIFile, mftError error)
 }
 
 func (sm *SimpleManager) InvalidateCRLParent(file *PKIFile, crlError error) {
-	if file.Parent.Type == TYPE_CRL && file.Parent.Parent != nil && file.Parent.Parent.Type == TYPE_CER {
+	if file != nil && file.Parent != nil && file.Parent.Type == TYPE_CRL && file.Parent.Parent != nil && file.Parent.Parent.Type == TYPE_CER {
 		res, ok := sm.Validator.ObjectsPath[file.Parent.Parent.Path]
 
 		if ok && res != nil && res.Resource != nil {
