@@ -95,6 +95,7 @@ type SimpleManager struct {
 	Errors       chan error
 
 	StrictManifests bool
+	StrictHash      bool
 }
 
 func NewSimpleManager() *SimpleManager {
@@ -105,6 +106,7 @@ func NewSimpleManager() *SimpleManager {
 		ToExploreUnique: make(map[string]bool),
 		Errors:          make(chan error, 50),
 		StrictManifests: true,
+		StrictHash:      true,
 	}
 }
 
@@ -822,7 +824,7 @@ func (sm *SimpleManager) Explore(notMFT bool, addInvalidChilds bool) int {
 		if !notMFT || file.Type != TYPE_MFT {
 			data, err := sm.GetNextFile(file)
 
-			if err == nil && data != nil && data.Sha256 != nil && file.ManifestHash != nil {
+			if err == nil && data != nil && sm.StrictHash && data.Sha256 != nil && file.ManifestHash != nil {
 				if bytes.Compare(data.Sha256, file.ManifestHash) != 0 {
 					errHash := NewResourceErrorHash(data.Sha256, file.ManifestHash)
 					errHash.AddFileErrorInfo(file, data)

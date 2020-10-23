@@ -17,13 +17,15 @@ import (
 )
 
 var (
-	RootTAL     = flag.String("tal.root", "tals/apnic.tal", "List of TAL separated by comma")
-	MapDir      = flag.String("map.dir", "rsync://rpki.ripe.net/repository/=./rpki.ripe.net/repository/", "Map of the paths separated by commas")
-	UseManifest = flag.Bool("manifest.use", true, "Use manifests file to explore instead of going into the repository")
-	CmsStrict   = flag.Bool("cms.strict", false, "Decode CMS with strict settings")
-	ValidTime   = flag.String("valid.time", "now", "Validation time (now/timestamp/RFC3339)")
-	LogLevel    = flag.String("loglevel", "info", "Log level")
-	Output      = flag.String("output", "output.json", "Output file")
+	RootTAL         = flag.String("tal.root", "tals/apnic.tal", "List of TAL separated by comma")
+	MapDir          = flag.String("map.dir", "rsync://rpki.ripe.net/repository/=./rpki.ripe.net/repository/", "Map of the paths separated by commas")
+	UseManifest     = flag.Bool("manifest.use", true, "Use manifests file to explore instead of going into the repository")
+	StrictManifests = flag.Bool("strict.manifests", true, "Manifests must be complete or invalidate CA")
+	StrictHash      = flag.Bool("strict.hash", true, "Check the hash of files")
+	StrictCms       = flag.Bool("strict.cms", false, "Decode CMS with strict settings")
+	ValidTime       = flag.String("valid.time", "now", "Validation time (now/timestamp/RFC3339)")
+	LogLevel        = flag.String("loglevel", "info", "Log level")
+	Output          = flag.String("output", "output.json", "Output file")
 )
 
 type OutputROA struct {
@@ -71,13 +73,15 @@ func main() {
 		validator := pki.NewValidator()
 		validator.Time = vt
 
-		validator.DecoderConfig.ValidateStrict = *CmsStrict
+		validator.DecoderConfig.ValidateStrict = *StrictCms
 
 		manager := pki.NewSimpleManager()
 		manager.Validator = validator
 		manager.FileSeeker = &s
 		manager.ReportErrors = true
 		manager.Log = log.StandardLogger()
+		manager.StrictHash = *StrictHash
+		manager.StrictManifests = *StrictManifests
 
 		go func(sm *pki.SimpleManager) {
 			for err := range sm.Errors {
