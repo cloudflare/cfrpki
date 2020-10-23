@@ -754,7 +754,7 @@ func (sm *SimpleManager) AddInitial(fileList []*PKIFile) {
 
 // Given a file, invalidates the certificate parent of the Manifest in which the file is listed in
 func (sm *SimpleManager) InvalidateManifestParent(file *PKIFile, mftError error) {
-	if file.Parent.Type == TYPE_MFT && file.Parent.Parent != nil && file.Parent.Parent.Type == TYPE_CER {
+	if file != nil && file.Parent != nil && file.Parent.Type == TYPE_MFT && file.Parent.Parent != nil && file.Parent.Parent.Type == TYPE_CER {
 		res, ok := sm.ResourceOfPath[file.Parent.Parent]
 
 		if ok && res != nil && res.Resource != nil {
