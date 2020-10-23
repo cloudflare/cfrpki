@@ -17,6 +17,7 @@ const (
 	ERROR_CERTIFICATE_RESOURCE
 	ERROR_CERTIFICATE_CONFLICT
 	ERROR_FILE
+	ERROR_CERTIFICATE_MANIFEST
 )
 
 type stack []uintptr
@@ -31,6 +32,7 @@ var (
 		ERROR_CERTIFICATE_RESOURCE:   "resource",
 		ERROR_CERTIFICATE_CONFLICT:   "conflict",
 		ERROR_FILE:                   "file",
+		ERROR_CERTIFICATE_MANIFEST:   "manifest",
 	}
 )
 
@@ -51,6 +53,8 @@ type CertificateError struct {
 
 	File     *PKIFile
 	SeekFile *SeekFile
+
+	InnerFile *PKIFile
 }
 
 func callers() *stack {
@@ -163,6 +167,18 @@ func (e *CertificateError) SetSentryScope(scope *sentry.Scope) {
 		scope.SetTag("File.Type", TypeToName[e.File.Type])
 		scope.SetExtra("File.Trust", e.File.Trust)
 	}
+	if e.InnerFile != nil {
+		if e.InnerFile.Repo != "" {
+			scope.SetTag("InnerFile.Repository", e.InnerFile.Repo)
+		} else {
+			if e.InnerFile.Parent != nil && e.InnerFile.Parent.Repo != "" {
+				scope.SetTag("InnerFile.Repository", e.InnerFile.Parent.Repo)
+			}
+		}
+		scope.SetTag("InnerFile.Path", e.InnerFile.Path)
+		scope.SetTag("InnerFile.Type", TypeToName[e.InnerFile.Type])
+		scope.SetExtra("InnerFile.Trust", e.InnerFile.Trust)
+	}
 	if e.SeekFile != nil {
 		// disabling as most of certificates are above the 200KB Sentry limit
 		//scope.SetExtra("File.Data", e.SeekFile.Data)
@@ -223,6 +239,17 @@ func NewCertificateErrorConflict(cert *librpki.RPKICertificate, conflict *librpk
 		Certificate: cert,
 		Conflict:    conflict,
 		Message:     "certificate conflict",
+		Stack:       callers(),
+	}
+}
+
+func NewCertificateErrorManifestRevocation(cert *librpki.RPKICertificate, err error, fileMft *PKIFile, fileAffected *PKIFile) *CertificateError {
+	return &CertificateError{
+		EType:       ERROR_CERTIFICATE_MANIFEST,
+		Certificate: cert,
+		InnerErr:    err,
+		InnerFile:   fileAffected,
+		Message:     "revocation due to manifest issue",
 		Stack:       callers(),
 	}
 }

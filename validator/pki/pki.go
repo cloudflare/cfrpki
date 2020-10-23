@@ -746,7 +746,7 @@ func (sm *SimpleManager) AddInitial(fileList []*PKIFile) {
 }
 
 // Given a file, invalidates the certificate parent of the Manifest in which the file is listed in
-func (sm *SimpleManager) InvalidateManifestParent(file *PKIFile) {
+func (sm *SimpleManager) InvalidateManifestParent(file *PKIFile, mftError error) {
 	if file.Parent.Type == TYPE_MFT && file.Parent.Parent != nil && file.Parent.Parent.Type == TYPE_CER {
 		res, ok := sm.ResourceOfPath[file.Parent.Parent]
 
@@ -754,6 +754,10 @@ func (sm *SimpleManager) InvalidateManifestParent(file *PKIFile) {
 			cert, ok := res.Resource.(*librpki.RPKICertificate)
 			if ok {
 				sm.Validator.InvalidateObject(cert.Certificate.SubjectKeyId)
+
+				err := NewCertificateErrorManifestRevocation(cert, mftError, file.Parent, file)
+				sm.reportErrorFile(err, file.Parent.Parent, nil)
+
 			} else {
 				sm.Log.Debugf("Could not invalidate certificate because incorrect resource")
 			}
@@ -768,7 +772,9 @@ func (sm *SimpleManager) ExploreAdd(file *PKIFile, data *SeekFile, addInvalidChi
 
 	if !valid || err != nil {
 		if sm.StrictManifests {
-			sm.InvalidateManifestParent(file)
+			// will also invalidate when ROA is expired
+			sm.InvalidateManifestParent(file, err)
+			//sm.reportErrorFile(err, file, data)
 		}
 	}
 
@@ -811,18 +817,22 @@ func (sm *SimpleManager) Explore(notMFT bool, addInvalidChilds bool) int {
 		if !notMFT || file.Type != TYPE_MFT {
 			data, err := sm.GetNextFile(file)
 
+			if err != nil || data == nil {
+
+				// This invalidates the Manifests' CA when a file is not found
+				if sm.StrictManifests {
+					sm.InvalidateManifestParent(file, nil)
+					//sm.reportErrorFile(err, file, data)
+				}
+
+			}
+
 			if err != nil {
 				sm.reportErrorFile(err, file, data)
 			} else if data != nil {
 				sm.ExploreAdd(file, data, addInvalidChilds)
 				hasMore = sm.HasMore()
 			} else { // data == nil && err == nil -> file was not found
-
-				// This invalidates the Manifests' CA when a file is not found
-				if sm.StrictManifests {
-					sm.InvalidateManifestParent(file)
-				}
-
 				if sm.Log != nil {
 					sm.Log.Debugf("GetNextFile returned nothing")
 				}
