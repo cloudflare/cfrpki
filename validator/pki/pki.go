@@ -1,6 +1,7 @@
 package pki
 
 import (
+	"bytes"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
@@ -62,9 +63,10 @@ func (res *Resource) GetIdentifier() (bool, []byte) {
 }
 
 type SeekFile struct {
-	Repo string
-	File string
-	Data []byte
+	Repo   string
+	File   string
+	Data   []byte
+	Sha256 []byte
 }
 
 type FileSeeker interface {
@@ -239,6 +241,8 @@ type PKIFile struct {
 	Path   string
 	Type   int
 	Trust  bool
+
+	ManifestHash []byte
 }
 
 func (f *PKIFile) ComputePath() string {
@@ -733,8 +737,9 @@ func ExtractPathManifest(mft *librpki.RPKIManifest) []*PKIFile {
 		curFile := file.Name
 		path := string(curFile)
 		item := PKIFile{
-			Type: DetermineType(path),
-			Path: path,
+			Type:         DetermineType(path),
+			Path:         path,
+			ManifestHash: file.GetHash(),
 		}
 		fileList = append(fileList, &item)
 	}
@@ -816,6 +821,14 @@ func (sm *SimpleManager) Explore(notMFT bool, addInvalidChilds bool) int {
 		}
 		if !notMFT || file.Type != TYPE_MFT {
 			data, err := sm.GetNextFile(file)
+
+			if err == nil && data != nil && data.Sha256 != nil && file.ManifestHash != nil {
+				if bytes.Compare(data.Sha256, file.ManifestHash) != 0 {
+					errHash := NewResourceErrorHash(data.Sha256, file.ManifestHash)
+					errHash.AddFileErrorInfo(file, data)
+					err = errHash
+				}
+			}
 
 			if err != nil || data == nil {
 

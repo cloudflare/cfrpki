@@ -1,6 +1,7 @@
 package syncpki
 
 import (
+	"crypto/sha256"
 	"github.com/cloudflare/cfrpki/validator/lib"
 	"github.com/cloudflare/cfrpki/validator/pki"
 	"io/ioutil"
@@ -40,25 +41,28 @@ func ReplacePath(file *pki.PKIFile, replace map[string]string) string {
 	return pathRep
 }
 
-func FetchFile(path string, conv bool) ([]byte, error) {
+func FetchFile(path string, conv bool) ([]byte, []byte, error) {
 
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer f.Close()
 	data, err := ioutil.ReadAll(f)
 	if err != nil {
-		return data, err
+		return data, nil, err
 	}
+
+	tmpSha265 := sha256.Sum256(data)
+	sha256 := tmpSha265[:]
 
 	if conv {
 		data, err = librpki.BER2DER(data)
 		if err != nil {
-			return data, err
+			return data, sha256, err
 		}
 	}
-	return data, err
+	return data, sha256, err
 }
 
 func ParseMapDirectory(mapdir string) map[string]string {
@@ -82,7 +86,7 @@ func (s *LocalFetch) GetFileConv(file *pki.PKIFile, convert bool) (*pki.SeekFile
 	if s.Log != nil {
 		s.Log.Debugf("Fetching %v->%v", file.Path, newPath)
 	}
-	data, err := FetchFile(newPath, convert)
+	data, sha256, err := FetchFile(newPath, convert)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -102,8 +106,9 @@ func (s *LocalFetch) GetFileConv(file *pki.PKIFile, convert bool) (*pki.SeekFile
 
 	}
 	return &pki.SeekFile{
-		File: file.Path,
-		Data: data,
+		File:   file.Path,
+		Data:   data,
+		Sha256: sha256,
 	}, err
 }
 
@@ -119,7 +124,7 @@ func (s *LocalFetch) GetRepository(file *pki.PKIFile, callback pki.CallbackExplo
 	}
 	for _, fileDir := range files {
 		if fileDir != nil && !fileDir.IsDir() {
-			data, err := FetchFile(newPath+fileDir.Name(), true)
+			data, sha256, err := FetchFile(newPath+fileDir.Name(), true)
 			if err != nil {
 				return err
 			}
@@ -148,8 +153,9 @@ func (s *LocalFetch) GetRepository(file *pki.PKIFile, callback pki.CallbackExplo
 					Path:   file.Repo + fileDir.Name(),
 				},
 				&pki.SeekFile{
-					File: file.Path,
-					Data: data,
+					File:   file.Path,
+					Data:   data,
+					Sha256: sha256,
 				}, false)
 		}
 	}

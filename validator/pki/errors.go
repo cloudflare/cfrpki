@@ -18,6 +18,7 @@ const (
 	ERROR_CERTIFICATE_CONFLICT
 	ERROR_FILE
 	ERROR_CERTIFICATE_MANIFEST
+	ERROR_CERTIFICATE_HASH
 )
 
 type stack []uintptr
@@ -33,6 +34,7 @@ var (
 		ERROR_CERTIFICATE_CONFLICT:   "conflict",
 		ERROR_FILE:                   "file",
 		ERROR_CERTIFICATE_MANIFEST:   "manifest",
+		ERROR_CERTIFICATE_HASH:       "hash",
 	}
 )
 
@@ -183,6 +185,7 @@ func (e *CertificateError) SetSentryScope(scope *sentry.Scope) {
 		// disabling as most of certificates are above the 200KB Sentry limit
 		//scope.SetExtra("File.Data", e.SeekFile.Data)
 		scope.SetExtra("File.Length", len(e.SeekFile.Data))
+		scope.SetExtra("File.Sha256", hex.EncodeToString(e.SeekFile.Sha256))
 	}
 	if len(e.IPs) > 0 {
 		scope.SetExtra("IPs", e.IPs)
@@ -328,6 +331,7 @@ func (e *ResourceError) SetSentryScope(scope *sentry.Scope) {
 		// disabling as most of certificates are above the 200KB Sentry limit
 		//scope.SetExtra("File.Data", e.SeekFile.Data)
 		scope.SetExtra("File.Length", len(e.SeekFile.Data))
+		scope.SetExtra("File.Sha256", hex.EncodeToString(e.SeekFile.Sha256))
 	}
 }
 
@@ -350,4 +354,13 @@ func NewResourceErrorWrap(wrapper interface{}, err error) *ResourceError {
 	}
 
 	return rw
+}
+
+func NewResourceErrorHash(hashFile, hashExpected []byte) *ResourceError {
+	return &ResourceError{
+		EType:    ERROR_CERTIFICATE_HASH,
+		InnerErr: fmt.Errorf("file hash is %s, expected %s from manifest", hex.EncodeToString(hashFile), hex.EncodeToString(hashExpected)),
+		Message:  "hash issue",
+		Stack:    callers(),
+	}
 }
