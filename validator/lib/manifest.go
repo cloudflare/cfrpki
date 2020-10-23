@@ -2,6 +2,7 @@ package librpki
 
 import (
 	"encoding/asn1"
+	"errors"
 	"math/big"
 	"time"
 )
@@ -60,9 +61,23 @@ func EncodeManifestContent(eContent ManifestContent) (*Manifest, error) {
 }
 
 func DecodeManifest(data []byte) (*RPKIManifest, error) {
+	return DefaultDecoderConfig.DecodeManifest(data)
+}
+
+func (cf *DecoderConfig) DecodeManifest(data []byte) (*RPKIManifest, error) {
 	c, err := DecodeCMS(data)
 	if err != nil {
 		return nil, err
+	}
+
+	if cf.ValidateStrict {
+		vs, err := c.CheckSignaturesMatch()
+		if err != nil {
+			return nil, err
+		}
+		if !vs {
+			return nil, errors.New("CMS is not valid due to ")
+		}
 	}
 
 	var manifest Manifest

@@ -277,6 +277,57 @@ func (cms *CMS) AddCRLs(crls []byte) error {
 	return nil
 }
 
+// Checks for an explicit NULL object in AlgorithmIdentifier
+// for both CMS and EE certificate.
+func (cms *CMS) CheckSignaturesMatch() (bool, error) {
+
+	type tbsCertificate struct {
+		Raw                asn1.RawContent
+		Version            int `asn1:"optional,explicit,default:0,tag:0"`
+		SerialNumber       asn1.RawValue
+		SignatureAlgorithm asn1.RawValue
+	}
+
+	type certificate struct {
+		Raw                asn1.RawContent
+		TBSCertificate     tbsCertificate
+		SignatureAlgorithm asn1.RawValue
+	}
+
+	var cert certificate
+
+	_, err := asn1.Unmarshal(cms.SignedData.Certificates.Bytes, &cert)
+	if err != nil {
+		return false, err
+	}
+	if len(cms.SignedData.SignerInfos) > 0 {
+
+		var signatureCert []asn1.RawValue
+		_, err = asn1.Unmarshal(cert.TBSCertificate.SignatureAlgorithm.FullBytes, &signatureCert)
+		if err != nil {
+			return false, err
+		}
+		if len(signatureCert) == 0 {
+			return false, nil
+		}
+
+		last := signatureCert[len(signatureCert)-1]
+		if last.Tag != asn1.TagNull {
+			return false, nil
+		}
+
+		var signatureCms []asn1.RawValue
+		_, err = asn1.Unmarshal(cms.SignedData.SignerInfos[0].SignatureAlgorithm.FullBytes, &signatureCms)
+		if err != nil {
+			return false, err
+		}
+
+		return bytes.Equal(cert.TBSCertificate.SignatureAlgorithm.FullBytes, cms.SignedData.SignerInfos[0].SignatureAlgorithm.FullBytes), nil
+	} else {
+		return false, nil
+	}
+}
+
 // Won't validate if signedattributes is empty
 func (cms *CMS) Validate(encap []byte, cert *x509.Certificate) error {
 	signedAttributes := cms.SignedData.SignerInfos[0].SignedAttrs
@@ -517,6 +568,5 @@ func DecodeCMS(data []byte) (*CMS, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	return &c, nil
 }

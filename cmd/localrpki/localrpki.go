@@ -20,6 +20,7 @@ var (
 	RootTAL     = flag.String("tal.root", "tals/apnic.tal", "List of TAL separated by comma")
 	MapDir      = flag.String("map.dir", "rsync://rpki.ripe.net/repository/=./rpki.ripe.net/repository/", "Map of the paths separated by commas")
 	UseManifest = flag.Bool("manifest.use", true, "Use manifests file to explore instead of going into the repository")
+	CmsStrict   = flag.Bool("cms.strict", false, "Decode CMS with strict settings")
 	ValidTime   = flag.String("valid.time", "now", "Validation time (now/timestamp/RFC3339)")
 	LogLevel    = flag.String("loglevel", "info", "Log level")
 	Output      = flag.String("output", "output.json", "Output file")
@@ -69,6 +70,8 @@ func main() {
 	for _, tal := range rootTALs {
 		validator := pki.NewValidator()
 		validator.Time = vt
+
+		validator.DecoderConfig.ValidateStrict = *CmsStrict
 
 		manager := pki.NewSimpleManager()
 		manager.Validator = validator

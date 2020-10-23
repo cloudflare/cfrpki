@@ -223,10 +223,34 @@ func ConvertROAEntries(roacontent ROAContent) ([]*ROAEntry, int, error) {
 	return entries, asn, nil
 }
 
+type DecoderConfig struct {
+	ValidateStrict bool
+}
+
+var (
+	DefaultDecoderConfig = &DecoderConfig{
+		ValidateStrict: false,
+	}
+)
+
 func DecodeROA(data []byte) (*RPKIROA, error) {
+	return DefaultDecoderConfig.DecodeROA(data)
+}
+
+func (cf *DecoderConfig) DecodeROA(data []byte) (*RPKIROA, error) {
 	c, err := DecodeCMS(data)
 	if err != nil {
 		return nil, err
+	}
+
+	if cf.ValidateStrict {
+		vs, err := c.CheckSignaturesMatch()
+		if err != nil {
+			return nil, err
+		}
+		if !vs {
+			return nil, errors.New("CMS is not valid due to ")
+		}
 	}
 
 	var rawroa ROA
