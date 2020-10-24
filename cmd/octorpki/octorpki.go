@@ -1002,75 +1002,34 @@ type ROAsTAL struct {
 	Count int    `json:"count,omitempty"`
 }
 
+type InfoAuthorities struct {
+	TA  string `json:"ta"`
+	Sia []SIA  `json:sia`
+}
+
 type InfoResult struct {
-	Stable             bool      `json:"stable"`
-	TALs               []string  `json:"tals"`
-	SIAs               []SIA     `json:"sia"`
-	Rsync              []Stats   `json:"sias-rsync,omitempty"`
-	RRDP               []Stats   `json:"sias-rrdp,omitempty"`
-	Iteration          int       `json:"iteration"`
-	LastValidation     int       `json:"validation-last"`
-	ValidationDuration float64   `json:"validation-duration"`
-	ValidationMessages []string  `json:"validation-messages"`
-	ExploredFiles      int       `json:"validation-explored"`
-	ROAsTALs           []ROAsTAL `json:"roas-tal-count"`
-	ROACount           int       `json:"roas-count"`
+	Stable             bool              `json:"stable"`
+	Authorities        []InfoAuthorities `json:"authorities,omitempty"`
+	Iteration          int               `json:"iteration"`
+	LastValidation     int               `json:"validation-last"`
+	ValidationDuration float64           `json:"validation-duration"`
+	ROAsTALs           []ROAsTAL         `json:"roas-tal-count"`
+	ROACount           int               `json:"roas-count"`
 }
 
 func (s *state) ServeInfo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	/*tmproa := s.ROAList
-
-	sia := make([]SIA, 0)
-	tmprsyncfetch := s.FinalRsyncFetch
-	tmprrdpfetch := s.FinalRRDPFetch
-	for k, _ := range tmprsyncfetch {
-		sia = append(sia, SIA{
-			Rsync: k,
-		})
-	}
-	for k, v := range tmprrdpfetch {
-		for _, vv := range v {
-			sia = append(sia, SIA{
-				Rsync: k,
-				RRDP:  vv,
-			})
-		}
-	}
-	tmprsync := s.RsyncStats
-	tmprrdp := s.RRDPStats
-	tmprsyncstats := make([]Stats, 0)
-	tmprrdpstats := make([]Stats, 0)
-	for _, v := range tmprsync {
-		tmprsyncstats = append(tmprsyncstats, v)
-	}
-	for _, v := range tmprrdp {
-		tmprrdpstats = append(tmprrdpstats, v)
-	}
-	vm := s.ValidationMessages
-
-	tals := make([]string, 0)
-	tmptals := s.Tals
-	for _, v := range tmptals {
-		tals = append(tals, v.Path)
-	}
 
 	ir := InfoResult{
-		TALs:               tals,
-		Stable:             s.Stable,
-		SIAs:               sia,
-		ROACount:           len(tmproa.Data),
+		ROACount:           len(s.ROAList.Data),
 		ROAsTALs:           s.ROAsTALsCount,
-		Rsync:              tmprsyncstats,
-		RRDP:               tmprrdpstats,
+		Stable:             s.Stable,
 		LastValidation:     int(s.LastComputed.UnixNano() / 1000000),
-		ExploredFiles:      s.CountExplore,
 		ValidationDuration: s.ValidationDuration.Seconds(),
 		Iteration:          s.Iteration,
-		ValidationMessages: vm,
 	}
 	enc := json.NewEncoder(w)
-	enc.Encode(ir)*/
+	enc.Encode(ir)
 }
 
 func (s *state) Serve(addr string, path string, metricsPath string, infoPath string, healthPath string, corsOrigin string, corsCreds bool) {
