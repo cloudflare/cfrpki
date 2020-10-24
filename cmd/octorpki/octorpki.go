@@ -256,6 +256,9 @@ type state struct {
 	ValidationMessages []string
 	ROAsTALsCount      []ROAsTAL
 
+	InfoAuthorities     [][]SIA
+	InfoAuthoritiesLock *sync.RWMutex
+
 	Pprof bool
 }
 
@@ -777,6 +780,12 @@ func (s *state) MainTAL(pSpan opentracing.Span) {
 }
 
 func (s *state) MainValidation(pSpan opentracing.Span) {
+	ia := make([][]SIA, len(s.Tals))
+	for i := 0; i < len(ia); i++ {
+		ia[i] = make([]SIA, 0)
+	}
+	iatmp := make(map[string]*SIA)
+
 	tracer := opentracing.GlobalTracer()
 	span := tracer.StartSpan(
 		"validation",
@@ -864,14 +873,32 @@ func (s *state) MainValidation(pSpan opentracing.Span) {
 				}
 				s.RsyncFetch[gnExtracted] = RRDPGN
 				s.CurrentRepos[gnExtracted] = time.Now().UTC()
-
 				count++
+
+				// map the rrdp and rsync by TAL for info page
+				iaId, ok := iatmp[gnExtracted]
+				if !ok {
+					iaIdTmp := SIA{
+						gnExtracted,
+						RRDPGN,
+					}
+					ia[i] = append(ia[i], iaIdTmp)
+					iaId = &(ia[i][len(ia[i])-1])
+					iatmp[gnExtracted] = iaId
+				}
+				iaId.Rsync = gnExtracted
+				iaId.RRDP = RRDPGN
+
 			}
 		}
 		sm.Close()
 		tSpan.LogKV("count-valid", count, "count-total", s.CountExplore)
 		tSpan.Finish()
 	}
+
+	s.InfoAuthoritiesLock.Lock()
+	s.InfoAuthorities = ia
+	s.InfoAuthoritiesLock.Unlock()
 
 	// Generating ROAs list
 	roalist := &prefixfile.ROAList{
@@ -1003,13 +1030,13 @@ type ROAsTAL struct {
 }
 
 type InfoAuthorities struct {
-	TA  string `json:"ta"`
-	Sia []SIA  `json:sia`
+	TA  string `json:"name"`
+	Sia []SIA  `json:"sia"`
 }
 
 type InfoResult struct {
 	Stable             bool              `json:"stable"`
-	Authorities        []InfoAuthorities `json:"authorities,omitempty"`
+	TAs                []InfoAuthorities `json:"tas"`
 	Iteration          int               `json:"iteration"`
 	LastValidation     int               `json:"validation-last"`
 	ValidationDuration float64           `json:"validation-duration"`
@@ -1020,7 +1047,33 @@ type InfoResult struct {
 func (s *state) ServeInfo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	s.InfoAuthoritiesLock.RLock()
+	ia := s.InfoAuthorities
+	s.InfoAuthoritiesLock.RUnlock()
+
+	ias := make([]InfoAuthorities, 0)
+	for i, tal := range s.Tals {
+
+		if len(ia) <= i {
+			break
+		}
+		if ia[i] == nil {
+			continue
+		}
+
+		talname := tal.Path
+		if len(s.TalNames) == len(s.Tals) {
+			talname = s.TalNames[i]
+		}
+
+		ias = append(ias, InfoAuthorities{
+			TA:  talname,
+			Sia: ia[i],
+		})
+	}
+
 	ir := InfoResult{
+		TAs:                ias,
 		ROACount:           len(s.ROAList.Data),
 		ROAsTALs:           s.ROAsTALsCount,
 		Stable:             s.Stable,
@@ -1182,6 +1235,9 @@ func main() {
 		RsyncStats:    make(map[string]Stats),
 		RRDPStats:     make(map[string]Stats),
 		ROAsTALsCount: make([]ROAsTAL, 0),
+
+		InfoAuthorities:     make([][]SIA, 0),
+		InfoAuthoritiesLock: &sync.RWMutex{},
 
 		Pprof: *Pprof,
 	}
