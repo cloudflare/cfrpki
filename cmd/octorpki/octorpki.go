@@ -54,7 +54,7 @@ var (
 	Basepath    = flag.String("cache", "cache/", "Base directory to store certificates")
 	LogLevel    = flag.String("loglevel", "info", "Log level")
 	Refresh     = flag.String("refresh", "20m", "Revalidation interval")
-	CmsStrict   = flag.Bool("cms.strict", false, "Decode CMS with strict settings")
+	CmsStrict   = flag.Bool("cms.strict", true, "Decode CMS with strict settings")
 
 	// Rsync Options
 	RsyncTimeout = flag.String("rsync.timeout", "20m", "Rsync command timeout")
