@@ -256,6 +256,9 @@ type state struct {
 	ValidationMessages []string
 	ROAsTALsCount      []ROAsTAL
 
+	InfoAuthorities     [][]SIA
+	InfoAuthoritiesLock *sync.RWMutex
+
 	Pprof bool
 }
 
@@ -777,6 +780,12 @@ func (s *state) MainTAL(pSpan opentracing.Span) {
 }
 
 func (s *state) MainValidation(pSpan opentracing.Span) {
+	ia := make([][]SIA, len(s.Tals))
+	for i := 0; i < len(ia); i++ {
+		ia[i] = make([]SIA, 0)
+	}
+	iatmp := make(map[string]*SIA)
+
 	tracer := opentracing.GlobalTracer()
 	span := tracer.StartSpan(
 		"validation",
@@ -864,14 +873,32 @@ func (s *state) MainValidation(pSpan opentracing.Span) {
 				}
 				s.RsyncFetch[gnExtracted] = RRDPGN
 				s.CurrentRepos[gnExtracted] = time.Now().UTC()
-
 				count++
+
+				// map the rrdp and rsync by TAL for info page
+				iaId, ok := iatmp[gnExtracted]
+				if !ok {
+					iaIdTmp := SIA{
+						gnExtracted,
+						RRDPGN,
+					}
+					ia[i] = append(ia[i], iaIdTmp)
+					iaId = &(ia[i][len(ia[i])-1])
+					iatmp[gnExtracted] = iaId
+				}
+				iaId.Rsync = gnExtracted
+				iaId.RRDP = RRDPGN
+
 			}
 		}
 		sm.Close()
 		tSpan.LogKV("count-valid", count, "count-total", s.CountExplore)
 		tSpan.Finish()
 	}
+
+	s.InfoAuthoritiesLock.Lock()
+	s.InfoAuthorities = ia
+	s.InfoAuthoritiesLock.Unlock()
 
 	// Generating ROAs list
 	roalist := &prefixfile.ROAList{
@@ -1002,75 +1029,60 @@ type ROAsTAL struct {
 	Count int    `json:"count,omitempty"`
 }
 
+type InfoAuthorities struct {
+	TA  string `json:"name"`
+	Sia []SIA  `json:"sia"`
+}
+
 type InfoResult struct {
-	Stable             bool      `json:"stable"`
-	TALs               []string  `json:"tals"`
-	SIAs               []SIA     `json:"sia"`
-	Rsync              []Stats   `json:"sias-rsync,omitempty"`
-	RRDP               []Stats   `json:"sias-rrdp,omitempty"`
-	Iteration          int       `json:"iteration"`
-	LastValidation     int       `json:"validation-last"`
-	ValidationDuration float64   `json:"validation-duration"`
-	ValidationMessages []string  `json:"validation-messages"`
-	ExploredFiles      int       `json:"validation-explored"`
-	ROAsTALs           []ROAsTAL `json:"roas-tal-count"`
-	ROACount           int       `json:"roas-count"`
+	Stable             bool              `json:"stable"`
+	TAs                []InfoAuthorities `json:"tas"`
+	Iteration          int               `json:"iteration"`
+	LastValidation     int               `json:"validation-last"`
+	ValidationDuration float64           `json:"validation-duration"`
+	ROAsTALs           []ROAsTAL         `json:"roas-tal-count"`
+	ROACount           int               `json:"roas-count"`
 }
 
 func (s *state) ServeInfo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	/*tmproa := s.ROAList
 
-	sia := make([]SIA, 0)
-	tmprsyncfetch := s.FinalRsyncFetch
-	tmprrdpfetch := s.FinalRRDPFetch
-	for k, _ := range tmprsyncfetch {
-		sia = append(sia, SIA{
-			Rsync: k,
-		})
-	}
-	for k, v := range tmprrdpfetch {
-		for _, vv := range v {
-			sia = append(sia, SIA{
-				Rsync: k,
-				RRDP:  vv,
-			})
+	s.InfoAuthoritiesLock.RLock()
+	ia := s.InfoAuthorities
+	s.InfoAuthoritiesLock.RUnlock()
+
+	ias := make([]InfoAuthorities, 0)
+	for i, tal := range s.Tals {
+
+		if len(ia) <= i {
+			break
 		}
-	}
-	tmprsync := s.RsyncStats
-	tmprrdp := s.RRDPStats
-	tmprsyncstats := make([]Stats, 0)
-	tmprrdpstats := make([]Stats, 0)
-	for _, v := range tmprsync {
-		tmprsyncstats = append(tmprsyncstats, v)
-	}
-	for _, v := range tmprrdp {
-		tmprrdpstats = append(tmprrdpstats, v)
-	}
-	vm := s.ValidationMessages
+		if ia[i] == nil {
+			continue
+		}
 
-	tals := make([]string, 0)
-	tmptals := s.Tals
-	for _, v := range tmptals {
-		tals = append(tals, v.Path)
+		talname := tal.Path
+		if len(s.TalNames) == len(s.Tals) {
+			talname = s.TalNames[i]
+		}
+
+		ias = append(ias, InfoAuthorities{
+			TA:  talname,
+			Sia: ia[i],
+		})
 	}
 
 	ir := InfoResult{
-		TALs:               tals,
-		Stable:             s.Stable,
-		SIAs:               sia,
-		ROACount:           len(tmproa.Data),
+		TAs:                ias,
+		ROACount:           len(s.ROAList.Data),
 		ROAsTALs:           s.ROAsTALsCount,
-		Rsync:              tmprsyncstats,
-		RRDP:               tmprrdpstats,
+		Stable:             s.Stable,
 		LastValidation:     int(s.LastComputed.UnixNano() / 1000000),
-		ExploredFiles:      s.CountExplore,
 		ValidationDuration: s.ValidationDuration.Seconds(),
 		Iteration:          s.Iteration,
-		ValidationMessages: vm,
 	}
 	enc := json.NewEncoder(w)
-	enc.Encode(ir)*/
+	enc.Encode(ir)
 }
 
 func (s *state) Serve(addr string, path string, metricsPath string, infoPath string, healthPath string, corsOrigin string, corsCreds bool) {
@@ -1223,6 +1235,9 @@ func main() {
 		RsyncStats:    make(map[string]Stats),
 		RRDPStats:     make(map[string]Stats),
 		ROAsTALsCount: make([]ROAsTAL, 0),
+
+		InfoAuthorities:     make([][]SIA, 0),
+		InfoAuthoritiesLock: &sync.RWMutex{},
 
 		Pprof: *Pprof,
 	}
