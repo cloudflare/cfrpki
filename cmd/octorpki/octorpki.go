@@ -54,7 +54,10 @@ var (
 	Basepath    = flag.String("cache", "cache/", "Base directory to store certificates")
 	LogLevel    = flag.String("loglevel", "info", "Log level")
 	Refresh     = flag.String("refresh", "20m", "Revalidation interval")
-	CmsStrict   = flag.Bool("cms.strict", true, "Decode CMS with strict settings")
+
+	StrictManifests = flag.Bool("strict.manifests", true, "Manifests must be complete or invalidate CA")
+	StrictHash      = flag.Bool("strict.hash", true, "Check the hash of files")
+	StrictCms       = flag.Bool("strict.cms", false, "Decode CMS with strict settings")
 
 	// Rsync Options
 	RsyncTimeout = flag.String("rsync.timeout", "20m", "Rsync command timeout")
@@ -260,6 +263,10 @@ type state struct {
 	InfoAuthoritiesLock *sync.RWMutex
 
 	Pprof bool
+
+	StrictHash      bool
+	StrictManifests bool
+	StrictCms       bool
 }
 
 func (s *state) MainReduce() bool {
@@ -802,7 +809,7 @@ func (s *state) MainValidation(pSpan opentracing.Span) {
 		tSpan.SetTag("tal", tal.Path)
 
 		validator := pki.NewValidator()
-		validator.DecoderConfig.ValidateStrict = *CmsStrict
+		validator.DecoderConfig.ValidateStrict = s.StrictCms
 
 		sm := pki.NewSimpleManager()
 		manager[i] = sm
@@ -810,6 +817,8 @@ func (s *state) MainValidation(pSpan opentracing.Span) {
 		manager[i].Validator = validator
 		manager[i].FileSeeker = s.Fetcher
 		manager[i].Log = s
+		manager[i].StrictHash = s.StrictHash
+		manager[i].StrictManifests = s.StrictManifests
 
 		go func(sm *pki.SimpleManager) {
 			for err := range sm.Errors {
@@ -1240,6 +1249,10 @@ func main() {
 		InfoAuthoritiesLock: &sync.RWMutex{},
 
 		Pprof: *Pprof,
+
+		StrictHash:      *StrictHash,
+		StrictManifests: *StrictManifests,
+		StrictCms:       *StrictCms,
 	}
 
 	if *Sign {

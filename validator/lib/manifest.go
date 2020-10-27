@@ -17,6 +17,10 @@ type File struct {
 	Hash asn1.BitString
 }
 
+func (f File) GetHash() []byte {
+	return f.Hash.Bytes
+}
+
 type ManifestContent struct {
 	ManifestNumber *big.Int
 	ThisUpdate     time.Time `asn1:"generalized"`
