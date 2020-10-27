@@ -229,7 +229,7 @@ type DecoderConfig struct {
 
 var (
 	DefaultDecoderConfig = &DecoderConfig{
-		ValidateStrict: false,
+		ValidateStrict: true,
 	}
 )
 
