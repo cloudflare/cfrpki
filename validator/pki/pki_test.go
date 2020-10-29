@@ -77,6 +77,7 @@ func (fs *TestingFileSeeker) AddFile(path string, payload []byte) {
 
 func Validate(talPath string, fs FileSeeker) int {
 	validator := NewValidator()
+	validator.DecoderConfig.ValidateStrict = false
 	validator.Time = time.Now().UTC()
 
 	manager := NewSimpleManager()
