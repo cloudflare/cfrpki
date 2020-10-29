@@ -249,7 +249,7 @@ func (cf *DecoderConfig) DecodeROA(data []byte) (*RPKIROA, error) {
 			return nil, err
 		}
 		if !vs {
-			return nil, errors.New("CMS is not valid due to ")
+			return nil, errors.New("CMS is not valid due to strict signature matching")
 		}
 	}
 

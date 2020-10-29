@@ -80,7 +80,7 @@ func (cf *DecoderConfig) DecodeManifest(data []byte) (*RPKIManifest, error) {
 			return nil, err
 		}
 		if !vs {
-			return nil, errors.New("CMS is not valid due to ")
+			return nil, errors.New("CMS is not valid due to strict signature matching")
 		}
 	}
 

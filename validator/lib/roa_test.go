@@ -63,6 +63,12 @@ func TestEncodeROA(t *testing.T) {
 	entriesBytes, err := asn1.Marshal(*cms)
 	assert.Nil(t, err)
 
-	_, err = DecodeROA(entriesBytes)
+	dc := &DecoderConfig{
+		ValidateStrict: false,
+	}
+	// At the moment, certificate encoding relying on Golang's library
+	// does not produce the NULL-ended signature algorithm field.
+	// Must disable strict validation for test to go through.
+	_, err = dc.DecodeROA(entriesBytes)
 	assert.Nil(t, err)
 }

@@ -72,6 +72,9 @@ func TestEncodeMFTContent(t *testing.T) {
 	entriesBytes, err := asn1.Marshal(*cms)
 	assert.Nil(t, err)
 
-	_, err = DecodeManifest(entriesBytes)
+	dc := &DecoderConfig{
+		ValidateStrict: false,
+	}
+	_, err = dc.DecodeManifest(entriesBytes)
 	assert.Nil(t, err)
 }
