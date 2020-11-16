@@ -128,14 +128,14 @@ OctoRPKI is available a docker container. Add the TAL files in the `tals/` folde
 ```bash
 $ mkdir tals && mkdir cache && touch cache/rrdp.json
 $ chmod 770 -R tals && chmod 770 -R cache && chmod 770 cache/rrdp.json
-$ docker run -ti --net=host -v $PWD/tals:/tals -v $PWD/cache:/cache -p 8081:8081 cloudflare/octorpki
+$ docker run -ti --net=host -v $PWD/tals:/tals -v $PWD/cache:/cache -p 8080:8080 cloudflare/octorpki
 ```
 
 Depending on your Docker configuration, you may need to specify `--net=host`
 and set permissions for the files in order to avoid errors.
 
 Using the default settings, you can access the generated ROAs list on
-<http://localhost:8081/output.json>.
+<http://localhost:8080/output.json>.
 
 #### Compile
 
