@@ -67,6 +67,7 @@ var (
 	RRDP         = flag.Bool("rrdp", true, "Enable RRDP fetching")
 	RRDPFile     = flag.String("rrdp.file", "cache/rrdp.json", "Save RRDP state")
 	RRDPFailover = flag.Bool("rrdp.failover", true, "Failover to rsync when RRDP fails")
+	UserAgent    = flag.String("useragent", fmt.Sprintf("Cloudflare-RRDP-%v (+https://github.com/cloudflare/cfrpki)", AppVersion), "User-Agent header")
 
 	Mode       = flag.String("mode", "server", "Select output mode (server/oneoff)")
 	WaitStable = flag.Bool("output.wait", true, "Wait until stable state to create the file (returns 503 when unstable on HTTP)")
@@ -1233,7 +1234,7 @@ func main() {
 			},
 			log.StandardLogger()),
 		HTTPFetcher: &syncpki.HTTPFetcher{
-			UserAgent: "Cloudflare-RPKI-RRDP/1.0 (+https://rpki.cloudflare.com)",
+			UserAgent: *UserAgent,
 			Client:    &http.Client{},
 		},
 		ROAList: &prefixfile.ROAList{
