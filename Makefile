@@ -48,7 +48,6 @@ package-deb-octorpki: prepare
         --url "$(URL)" \
         --architecture $(ARCH) \
         --license "$(LICENSE)" \
-       	--deb-no-default-config-files \
         --package $(DIST_DIR) \
         $(OUTPUT_OCTORPKI)=/usr/bin/octorpki \
         package/octorpki.service=/lib/systemd/system/octorpki.service \
