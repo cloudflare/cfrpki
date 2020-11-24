@@ -1,6 +1,6 @@
 # Cloudflare RPKI Validator Tools and Libraries
 
-[![Build Status](https://travis-ci.org/cloudflare/cfrpki.svg?branch=master)](https://travis-ci.org/cloudflare/cfrpki)
+[![Build Status](https://github.com/cloudflare/cfrpki/workflows/Go/badge.svg)](https://github.com/cloudflare/cfrpki/actions?query=workflow%3AGo)
 
 <img align="left" src="resources/octorpki.png" alt="Cloudflare OctoRPKI logo">
 
