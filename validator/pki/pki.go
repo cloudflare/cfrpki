@@ -815,15 +815,15 @@ func (sm *SimpleManager) ExploreAdd(file *PKIFile, data *SeekFile, addInvalidChi
 	sm.Explored[file.ComputePath()] = true
 	valid, subFiles, res, err := sm.Validator.AddResource(file, data.Data)
 
-	if !valid || err != nil {
+	/*if !valid || err != nil {
 		if sm.StrictManifests {
 			// will also invalidate when ROA is expired
 			sm.InvalidateManifestParent(file, err)
 		}
-	}
+	}*/
 
 	if err != nil {
-		sm.InvalidateCRLParent(file, err)
+		//sm.InvalidateCRLParent(file, err)
 
 		if sm.Log != nil {
 			sm.reportErrorFile(err, file, data)
