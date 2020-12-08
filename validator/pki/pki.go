@@ -282,7 +282,7 @@ func (v *Validator) AddResource(pkifile *PKIFile, data []byte) (bool, []*PKIFile
 		}
 		pathCert, res, err := v.AddTAL(tal)
 		if res == nil {
-			return true, pathCert, res, errors.New(fmt.Sprintf("Resource is empty: %v", err))
+			return true, pathCert, res, errors.New("Resource is empty")
 		}
 		res.File = pkifile
 		for _, pc := range pathCert {
@@ -307,7 +307,7 @@ func (v *Validator) AddResource(pkifile *PKIFile, data []byte) (bool, []*PKIFile
 
 		valid, pathCert, res, err := v.AddCert(cert, pkifile.Trust)
 		if res == nil {
-			return valid, pathCert, res, errors.New(fmt.Sprintf("Resource is empty: %v", err))
+			return valid, pathCert, res, fmt.Errorf("Resource is empty: %v", err)
 		}
 		res.Type = TYPE_CER
 		res.File = pkifile
@@ -324,7 +324,7 @@ func (v *Validator) AddResource(pkifile *PKIFile, data []byte) (bool, []*PKIFile
 		}
 		valid, res, err := v.AddROA(pkifile, roa)
 		if res == nil {
-			return valid, nil, res, errors.New(fmt.Sprintf("Resource is empty: %v", err))
+			return valid, nil, res, fmt.Errorf("Resource is empty: %v", err)
 		}
 		res.File = pkifile
 
@@ -337,7 +337,7 @@ func (v *Validator) AddResource(pkifile *PKIFile, data []byte) (bool, []*PKIFile
 		}
 		valid, pathCert, res, err := v.AddManifest(pkifile, mft)
 		if res == nil {
-			return valid, nil, res, errors.New(fmt.Sprintf("Resource is empty: %v", err))
+			return valid, nil, res, fmt.Errorf("Resource is empty: %v", err)
 		}
 		res.File = pkifile
 		// add the parent information to invalidate the Manifest in case of an issue
@@ -355,10 +355,10 @@ func (v *Validator) AddResource(pkifile *PKIFile, data []byte) (bool, []*PKIFile
 		}
 		valid, res, err := v.AddCRL(crl)
 		if pkifile.Parent.Parent.Path != res.Parent.File.Path {
-			return false, nil, nil, errors.New(fmt.Sprintf("CRL %s does not match with the parent %s", pkifile.Path, pkifile.Parent.Parent.Path))
+			return false, nil, nil, fmt.Errorf("CRL %s does not match with the parent %s", pkifile.Path, pkifile.Parent.Parent.Path)
 		}
 		if res == nil {
-			return valid, nil, res, errors.New(fmt.Sprintf("Resource is empty: %v", err))
+			return valid, nil, res, fmt.Errorf("Resource is empty: %v", err)
 		}
 		res.File = pkifile
 
@@ -824,6 +824,16 @@ func (sm *SimpleManager) ExploreAdd(file *PKIFile, data *SeekFile, addInvalidChi
 
 	if err != nil {
 		//sm.InvalidateCRLParent(file, err)
+
+		switch err.(type) {
+		case *FileError:
+		case *ResourceError:
+		case *CertificateError:
+		default:
+			fe := NewFileError(err)
+			fe.AddFileErrorInfo(file, data)
+			err = fe
+		}
 
 		if sm.Log != nil {
 			sm.reportErrorFile(err, file, data)
