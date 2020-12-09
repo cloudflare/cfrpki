@@ -6,7 +6,7 @@ BUILDINFOSDET ?=
 
 DOCKER_REPO   := cloudflare/
 OCTORPKI_NAME    := octorpki
-OCTORPKI_VERSION := $(shell git describe)
+OCTORPKI_VERSION ?= $(shell git describe)
 VERSION_PKG   := $(shell echo $(OCTORPKI_VERSION) | sed 's/^v//g')
 ARCH          := x86_64
 LICENSE       := BSD-3
