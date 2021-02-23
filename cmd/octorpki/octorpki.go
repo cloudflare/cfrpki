@@ -1002,16 +1002,27 @@ func (s *state) ServeROAs(w http.ResponseWriter, r *http.Request) {
 		etag := sha256.New()
 		etag.Write([]byte(fmt.Sprintf("%v/%v", tmp.Metadata.Generated, tmp.Metadata.Counts)))
 		etagSum := etag.Sum(nil)
-		etagSumHex := hex.EncodeToString(etagSum)
+		etagSumHex := "\"" + hex.EncodeToString(etagSum) + "\""
 
-		if match := r.Header.Get("If-None-Match"); match != "" {
-			if match == etagSumHex {
+		w.Header().Set("Etag", etagSumHex)
+
+		if ifNoneMatch := r.Header.Get("If-None-Match"); ifNoneMatch != "" {
+			if ifNoneMatch == etagSumHex {
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+		} else {
+			// check If-Last-Modified otherwise
+			ifModifiedSince, err := http.ParseTime(r.Header.Get("If-Modified-Since"))
+			if err == nil && s.LastComputed.Unix() <= ifModifiedSince.Unix() {
 				w.WriteHeader(http.StatusNotModified)
 				return
 			}
 		}
 
-		w.Header().Set("Etag", etagSumHex)
+		lastModified := s.LastComputed.UTC().Format(http.TimeFormat)
+		w.Header().Set("Last-Modified", lastModified)
+
 		enc := json.NewEncoder(w)
 		enc.Encode(tmp)
 	} else {
