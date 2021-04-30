@@ -221,7 +221,9 @@ func (cms *CMS) Sign(rand io.Reader, ski []byte, encap []byte, priv interface{},
 	h.Write(encap)
 	messageDigest := h.Sum(nil)
 	messageDigestEnc, err := asn1.Marshal(messageDigest)
-
+	if err != nil {
+		return err
+	}
 	digestAttribute := Attribute{
 		AttrType:  MessageDigest,
 		AttrValue: []asn1.RawValue{asn1.RawValue{FullBytes: messageDigestEnc}},
