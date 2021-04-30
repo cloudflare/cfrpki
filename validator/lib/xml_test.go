@@ -7,11 +7,13 @@ import (
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/hex"
-	"github.com/stretchr/testify/assert"
 	"math/big"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEncodeXMLContent(t *testing.T) {
@@ -24,6 +26,7 @@ func TestEncodeXMLContent(t *testing.T) {
 	assert.Nil(t, err)
 
 	privkeyParent, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
 	skiParent, _ := HashRSAPublicKey(*privkeyParent.Public().(*rsa.PublicKey))
 
 	parentCert := &x509.Certificate{
@@ -38,6 +41,7 @@ func TestEncodeXMLContent(t *testing.T) {
 	}
 
 	privkey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
 	ski, _ := HashRSAPublicKey(*privkey.Public().(*rsa.PublicKey))
 
 	cert := &x509.Certificate{
@@ -52,6 +56,7 @@ func TestEncodeXMLContent(t *testing.T) {
 	}
 	pubkey := privkey.Public()
 	certBytes, err := x509.CreateCertificate(rand.Reader, cert, parentCert, pubkey, privkeyParent)
+	require.NoError(t, err)
 
 	crls, err := parentCert.CreateCRL(rand.Reader, privkeyParent, []pkix.RevokedCertificate{}, now.Add(-time.Minute*5), now.Add(time.Minute*5))
 	assert.Nil(t, err)
