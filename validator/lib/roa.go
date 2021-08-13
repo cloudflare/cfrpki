@@ -154,6 +154,21 @@ func (entry *ROAEntry) Validate() error {
 	if entry.MaxLength < s {
 		return errors.New(fmt.Sprintf("Max length (%v) is smaller than prefix length (%v)", entry.MaxLength, s))
 	}
+
+	if entry.MaxLength < 1 {
+		return fmt.Errorf("max length (%d) is less than 1", entry.MaxLength)
+	}
+
+	if entry.IPNet.IP.To4() != nil { // If IPv4
+		if entry.MaxLength > 32 {
+			return fmt.Errorf("max length (%d) too small for IPv4 prefix", entry.MaxLength)
+		}
+	} else { // If IPv6
+		if entry.MaxLength > 128 {
+			return fmt.Errorf("max length (%d) too small for IPv6 prefix", entry.MaxLength)
+		}
+	}
+
 	return nil
 }
 
