@@ -23,8 +23,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cloudflare/cfrpki/sync/lib"
-	"github.com/cloudflare/cfrpki/validator/lib"
+	syncpki "github.com/cloudflare/cfrpki/sync/lib"
+	librpki "github.com/cloudflare/cfrpki/validator/lib"
 	"github.com/cloudflare/cfrpki/validator/pki"
 
 	"github.com/rs/cors"
@@ -36,10 +36,11 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	// Debugging
+	"net/http/pprof"
+
 	"github.com/getsentry/sentry-go"
 	"github.com/opentracing/opentracing-go"
 	jcfg "github.com/uber/jaeger-client-go/config"
-	"net/http/pprof"
 )
 
 var (
