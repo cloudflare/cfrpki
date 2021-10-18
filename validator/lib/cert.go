@@ -62,7 +62,10 @@ func (ipn *IPNet) GetAfi() uint8 {
 }
 
 func (ipn *IPNet) GetRange() (net.IP, net.IP, bool) {
-	min, max := GetRangeIP(ipn.IPNet)
+	err, min, max := GetRangeIP(ipn.IPNet)
+	if err != nil {
+		return nil, nil, false
+	}
 	return min, max, false
 }
 
@@ -473,6 +476,9 @@ func ValidateIPCertificateList(list []IPCertificateInformation, parent *RPKICert
 		if checkParent {
 			valids = append(valids, ip)
 			continue
+		}
+		if min == nil && max == nil {
+			invalids = append(invalids, ip)
 		}
 		valid, checkParent := parent.IsIPRangeInCertificate(min, max)
 		if valid {

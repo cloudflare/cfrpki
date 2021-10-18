@@ -133,17 +133,21 @@ func EncodeROAEntries(asn int, entries []*ROAEntry) (*ROA, error) {
 	return roa, nil
 }
 
-func GetRangeIP(ipnet *net.IPNet) (net.IP, net.IP) {
+func GetRangeIP(ipnet *net.IPNet) (error, net.IP, net.IP) {
 	ip := ipnet.IP
 	mask := ipnet.Mask
 
 	beginIP := make([]byte, len(ip))
 	endIP := make([]byte, len(ip))
 	for i := range []byte(ip) {
+		// GHSA-w6ww-fmfx-2x22: Prevent oob read
+		if i >= len(mask) {
+			return errors.New("Invalid IP address mask"), nil, nil
+		}
 		beginIP[i] = ip[i] & mask[i]
 		endIP[i] = ip[i] | ^mask[i]
 	}
-	return net.IP(beginIP), net.IP(endIP)
+	return nil, net.IP(beginIP), net.IP(endIP)
 }
 
 // https://tools.ietf.org/html/rfc6480#section-2.3
@@ -191,7 +195,10 @@ func ValidateIPRoaCertificateList(entries []*ROAEntry, cert *RPKICertificate) ([
 	invalids := make([]*ROAEntry, 0)
 	checkParents := make([]*ROAEntry, 0)
 	for _, entry := range entries {
-		min, max := GetRangeIP(entry.IPNet)
+		err, min, max := GetRangeIP(entry.IPNet)
+		if err != nil {
+			invalids = append(invalids, entry)
+		}
 		valid, checkParent := cert.IsIPRangeInCertificate(min, max)
 		if valid {
 			valids = append(valids, entry)
