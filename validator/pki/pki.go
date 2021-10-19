@@ -7,8 +7,10 @@ import (
 	"encoding/asn1"
 	"errors"
 	"fmt"
-	"github.com/cloudflare/cfrpki/validator/lib"
+	"strings"
 	"time"
+
+	librpki "github.com/cloudflare/cfrpki/validator/lib"
 )
 
 const (
@@ -754,6 +756,9 @@ func ExtractPathManifest(mft *librpki.RPKIManifest) []*PKIFile {
 	for _, file := range mft.Content.FileList {
 		curFile := file.Name
 		path := string(curFile)
+		// GHSA-cqh2-vc2f-q4fh: Prevent file path references to parent
+		// directories.
+		path = strings.ReplaceAll(path, "../", "")
 		item := PKIFile{
 			Type:         DetermineType(path),
 			Path:         path,
