@@ -6,11 +6,14 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"github.com/getsentry/sentry-go"
 	"io/ioutil"
 	"net/http"
 	"strings"
+
+	"github.com/getsentry/sentry-go"
 )
+
+const ResponseLimit int64 = 100000000 // (100mb)
 
 type RRDPFetcher interface {
 	GetXML(string) (string, error)
@@ -40,7 +43,10 @@ func (f *HTTPFetcher) GetXML(url string) (string, error) {
 		return "", NewRRDPErrorFetch(req, errors.New(fmt.Sprintf("status is %d", res.StatusCode)))
 	}
 
-	data, err := ioutil.ReadAll(res.Body)
+	// GHSA-g9wh-3vrx-r7hg: Do not process responses that are excessively large
+	r := http.MaxBytesReader(nil, res.Body, ResponseLimit)
+	data, err := ioutil.ReadAll(r)
+
 	if err != nil {
 		return "", err
 	}
