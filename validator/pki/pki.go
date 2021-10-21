@@ -878,6 +878,22 @@ func (sm *SimpleManager) Explore(notMFT bool, addInvalidChilds bool) int {
 			data, err := sm.GetNextFile(file)
 
 			if err == nil && data != nil && sm.StrictHash && data.Sha256 != nil && file.ManifestHash != nil {
+				// Invalidates the Manifests' CA when the manifest is expired
+				if file.Parent != nil && file.Parent.Type == TYPE_MFT {
+					res, ok := sm.ResourceOfPath[file.Parent]
+					if ok && res != nil && res.Resource != nil {
+						cert, ok := res.Resource.(*librpki.RPKIManifest)
+						if ok {
+							if time.Now().After(cert.Content.NextUpdate) || time.Now().Before(cert.Content.ThisUpdate) {
+								sm.InvalidateManifestParent(file, nil)
+							}
+						} else {
+							sm.Log.Debugf("Resource is not a manifest, not invalidating")
+						}
+					} else {
+						sm.Log.Debugf("Could not fetch Parent Resource, not invalidating")
+					}
+				}
 				if bytes.Compare(data.Sha256, file.ManifestHash) != 0 {
 					errHash := NewResourceErrorHash(data.Sha256, file.ManifestHash)
 					errHash.AddFileErrorInfo(file, data)
@@ -894,7 +910,6 @@ func (sm *SimpleManager) Explore(notMFT bool, addInvalidChilds bool) int {
 				}
 
 			}
-
 			if err != nil {
 				sm.reportErrorFile(err, file, data)
 
