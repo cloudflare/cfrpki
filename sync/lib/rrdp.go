@@ -13,7 +13,7 @@ import (
 	"github.com/getsentry/sentry-go"
 )
 
-const ResponseLimit int64 = 100000000 // (100mb)
+const ResponseLimit int64 = 1000000000 // (5Gb)
 
 type RRDPFetcher interface {
 	GetXML(string) (string, error)
