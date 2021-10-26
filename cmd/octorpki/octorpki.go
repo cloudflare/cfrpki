@@ -1240,7 +1240,10 @@ func main() {
 			log.StandardLogger()),
 		HTTPFetcher: &syncpki.HTTPFetcher{
 			UserAgent: *UserAgent,
-			Client:    &http.Client{},
+			Client: &http.Client{
+				// GHSA-8cvr-4rrf-f244: Prevent infinite open connections
+				Timeout: time.Second * 60,
+			},
 		},
 		ROAList: &prefixfile.ROAList{
 			Data: make([]prefixfile.ROAJson, 0),
