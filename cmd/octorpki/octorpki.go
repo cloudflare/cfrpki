@@ -49,12 +49,13 @@ var (
 	AppVersion = "OctoRPKI " + version + " " + buildinfos
 
 	// Validator Options
-	RootTAL     = flag.String("tal.root", "tals/afrinic.tal,tals/apnic.tal,tals/arin.tal,tals/lacnic.tal,tals/ripe.tal", "List of TAL separated by comma")
-	TALNames    = flag.String("tal.name", "AFRINIC,APNIC,ARIN,LACNIC,RIPE", "Name of the TALs")
-	UseManifest = flag.Bool("manifest.use", true, "Use manifests file to explore instead of going into the repository")
-	Basepath    = flag.String("cache", "cache/", "Base directory to store certificates")
-	LogLevel    = flag.String("loglevel", "info", "Log level")
-	Refresh     = flag.String("refresh", "20m", "Revalidation interval")
+	RootTAL       = flag.String("tal.root", "tals/afrinic.tal,tals/apnic.tal,tals/arin.tal,tals/lacnic.tal,tals/ripe.tal", "List of TAL separated by comma")
+	TALNames      = flag.String("tal.name", "AFRINIC,APNIC,ARIN,LACNIC,RIPE", "Name of the TALs")
+	UseManifest   = flag.Bool("manifest.use", true, "Use manifests file to explore instead of going into the repository")
+	Basepath      = flag.String("cache", "cache/", "Base directory to store certificates")
+	LogLevel      = flag.String("loglevel", "info", "Log level")
+	Refresh       = flag.String("refresh", "20m", "Revalidation interval")
+	MaxIterations = flag.Int("max.iterations", 32, "Specify the max number of iterations octorpki will make before failing to generate output.json")
 
 	StrictManifests = flag.Bool("strict.manifests", true, "Manifests must be complete or invalidate CA")
 	StrictHash      = flag.Bool("strict.hash", true, "Check the hash of files")
@@ -1298,6 +1299,10 @@ func main() {
 
 		s.Iteration++
 		iterationsUntilStable++
+		// GHSA-g5gj-9ggf-9vmq: Prevent infinite repository traversal
+		if iterationsUntilStable > *MaxIterations {
+			log.Fatal("Max iterations has been reached. This number can be adjusted with -max.iterations")
+		}
 		span.SetTag("iteration", s.Iteration)
 
 		if *RRDP {
