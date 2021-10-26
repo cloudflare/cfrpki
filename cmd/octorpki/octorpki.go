@@ -314,6 +314,9 @@ func (s *state) WriteRsyncFileOnDisk(path string, data []byte, withdraw bool) er
 	if err != nil {
 		log.Fatal(err)
 	}
+	// GHSA-cqh2-vc2f-q4fh: Prevent parent directory writes outside of Basepath
+	fPath = strings.ReplaceAll(fPath, "../", "")
+
 	f, err := os.Create(filepath.Join(s.Basepath, fPath))
 	if err != nil {
 		return err
