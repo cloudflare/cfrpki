@@ -477,9 +477,6 @@ func ValidateIPCertificateList(list []IPCertificateInformation, parent *RPKICert
 			valids = append(valids, ip)
 			continue
 		}
-		if min == nil && max == nil {
-			invalids = append(invalids, ip)
-		}
 		valid, checkParent := parent.IsIPRangeInCertificate(min, max)
 		if valid {
 			valids = append(valids, ip)
