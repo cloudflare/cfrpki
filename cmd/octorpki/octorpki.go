@@ -446,7 +446,8 @@ func (s *state) MainRRDP(pSpan opentracing.Span) {
 				sentry.CaptureException(err)
 			})
 
-			if s.RRDPFailover {
+			// GHSA-g9wh-3vrx-r7hg: Do not process responses that are too large
+			if s.RRDPFailover && err.Error() != "http: request body too large" {
 				log.Errorf("Error when processing %v (for %v): %v. Will add to rsync.", path, rsync, err)
 				rSpan.LogKV("event", "rrdp failure", "type", "failover to rsync", "message", err)
 			} else {
