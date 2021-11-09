@@ -49,12 +49,13 @@ var (
 	AppVersion = "OctoRPKI " + version + " " + buildinfos
 
 	// Validator Options
-	RootTAL     = flag.String("tal.root", "tals/afrinic.tal,tals/apnic.tal,tals/arin.tal,tals/lacnic.tal,tals/ripe.tal", "List of TAL separated by comma")
-	TALNames    = flag.String("tal.name", "AFRINIC,APNIC,ARIN,LACNIC,RIPE", "Name of the TALs")
-	UseManifest = flag.Bool("manifest.use", true, "Use manifests file to explore instead of going into the repository")
-	Basepath    = flag.String("cache", "cache/", "Base directory to store certificates")
-	LogLevel    = flag.String("loglevel", "info", "Log level")
-	Refresh     = flag.String("refresh", "20m", "Revalidation interval")
+	RootTAL       = flag.String("tal.root", "tals/afrinic.tal,tals/apnic.tal,tals/arin.tal,tals/lacnic.tal,tals/ripe.tal", "List of TAL separated by comma")
+	TALNames      = flag.String("tal.name", "AFRINIC,APNIC,ARIN,LACNIC,RIPE", "Name of the TALs")
+	UseManifest   = flag.Bool("manifest.use", true, "Use manifests file to explore instead of going into the repository")
+	Basepath      = flag.String("cache", "cache/", "Base directory to store certificates")
+	LogLevel      = flag.String("loglevel", "info", "Log level")
+	Refresh       = flag.String("refresh", "20m", "Revalidation interval")
+	MaxIterations = flag.Int("max.iterations", 32, "Specify the max number of iterations octorpki will make before failing to generate output.json")
 
 	StrictManifests = flag.Bool("strict.manifests", true, "Manifests must be complete or invalidate CA")
 	StrictHash      = flag.Bool("strict.hash", true, "Check the hash of files")
@@ -314,6 +315,9 @@ func (s *state) WriteRsyncFileOnDisk(path string, data []byte, withdraw bool) er
 	if err != nil {
 		log.Fatal(err)
 	}
+	// GHSA-cqh2-vc2f-q4fh: Prevent parent directory writes outside of Basepath
+	fPath = strings.ReplaceAll(fPath, "../", "")
+
 	f, err := os.Create(filepath.Join(s.Basepath, fPath))
 	if err != nil {
 		return err
@@ -442,7 +446,8 @@ func (s *state) MainRRDP(pSpan opentracing.Span) {
 				sentry.CaptureException(err)
 			})
 
-			if s.RRDPFailover {
+			// GHSA-g9wh-3vrx-r7hg: Do not process responses that are too large
+			if s.RRDPFailover && err.Error() != "http: request body too large" {
 				log.Errorf("Error when processing %v (for %v): %v. Will add to rsync.", path, rsync, err)
 				rSpan.LogKV("event", "rrdp failure", "type", "failover to rsync", "message", err)
 			} else {
@@ -1236,7 +1241,10 @@ func main() {
 			log.StandardLogger()),
 		HTTPFetcher: &syncpki.HTTPFetcher{
 			UserAgent: *UserAgent,
-			Client:    &http.Client{},
+			Client: &http.Client{
+				// GHSA-8cvr-4rrf-f244: Prevent infinite open connections
+				Timeout: time.Second * 60,
+			},
 		},
 		ROAList: &prefixfile.ROAList{
 			Data: make([]prefixfile.ROAJson, 0),
@@ -1295,6 +1303,10 @@ func main() {
 
 		s.Iteration++
 		iterationsUntilStable++
+		// GHSA-g5gj-9ggf-9vmq: Prevent infinite repository traversal
+		if iterationsUntilStable > *MaxIterations {
+			log.Fatal("Max iterations has been reached. This number can be adjusted with -max.iterations")
+		}
 		span.SetTag("iteration", s.Iteration)
 
 		if *RRDP {

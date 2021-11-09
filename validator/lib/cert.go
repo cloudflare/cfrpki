@@ -62,7 +62,10 @@ func (ipn *IPNet) GetAfi() uint8 {
 }
 
 func (ipn *IPNet) GetRange() (net.IP, net.IP, bool) {
-	min, max := GetRangeIP(ipn.IPNet)
+	err, min, max := GetRangeIP(ipn.IPNet)
+	if err != nil {
+		return nil, nil, false
+	}
 	return min, max, false
 }
 

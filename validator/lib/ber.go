@@ -162,6 +162,10 @@ func readObject(ber []byte, offset int) (asn1Object, int, error) {
 	*/
 	// read length
 	var length int
+	// GHSA-5mxh-2qfv-4g7j: Prevent a BER w/ NUL contents from being processed
+	if len(ber) <= offset {
+		return nil, 0, errors.New("ber2der: invalid BER tag length")
+	}
 	l := ber[offset]
 	offset++
 	indefinite := false
