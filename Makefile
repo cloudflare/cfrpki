@@ -45,6 +45,8 @@ docker-octorpki:
 package-deb-octorpki: prepare
 	fpm -s dir -t deb -n $(OCTORPKI_NAME) -v $(VERSION_PKG) \
         --description "$(DESCRIPTION)"  \
+        --after-install package/after-install-octorpki.sh \
+        --before-remove package/before-remove-octoprki.sh \
         --url "$(URL)" \
         --architecture $(ARCH) \
         --license "$(LICENSE)" \
@@ -61,6 +63,8 @@ package-deb-octorpki: prepare
 package-rpm-octorpki: prepare
 	fpm -s dir -t rpm -n $(OCTORPKI_NAME) -v $(VERSION_PKG) \
         --description "$(DESCRIPTION)" \
+        --after-install package/after-install-octorpki.sh \
+        --before-remove package/before-remove-octoprki.sh \
         --url "$(URL)" \
         --architecture $(ARCH) \
         --license "$(LICENSE) "\

@@ -47,6 +47,7 @@ var (
 	version    = ""
 	buildinfos = ""
 	AppVersion = "OctoRPKI " + version + " " + buildinfos
+	AllowRoot  = flag.Bool("allow.root", false, "Allow starting as root")
 
 	// Validator Options
 	RootTAL       = flag.String("tal.root", "tals/afrinic.tal,tals/apnic.tal,tals/arin.tal,tals/lacnic.tal,tals/ripe.tal", "List of TAL separated by comma")
@@ -1134,6 +1135,9 @@ func (s *state) Serve(addr string, path string, metricsPath string, infoPath str
 }
 
 func init() {
+	if !*AllowRoot && runningAsRoot() {
+		panic("Running as root is not allowed by default")
+	}
 
 	prometheus.MustRegister(MetricSIACounts)
 	prometheus.MustRegister(MetricRsyncErrors)
@@ -1145,6 +1149,10 @@ func init() {
 	prometheus.MustRegister(MetricLastValidation)
 	prometheus.MustRegister(MetricOperationTime)
 	prometheus.MustRegister(MetricLastFetch)
+}
+
+func runningAsRoot() bool {
+	return os.Geteuid() == 0 || os.Getegid() == 0
 }
 
 func main() {
