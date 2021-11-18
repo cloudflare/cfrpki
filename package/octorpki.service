@@ -7,6 +7,8 @@ Type=simple
 EnvironmentFile=/etc/default/octorpki
 WorkingDirectory=/usr/share/octorpki
 ExecStart=/usr/bin/octorpki $OCTORPKI_ARGS
+User=octorpki
+Group=octorpki
 
 [Install]
 WantedBy=multi-user.target
