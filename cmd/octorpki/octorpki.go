@@ -828,7 +828,7 @@ func (s *state) MainValidation(pSpan opentracing.Span) {
 		manager[i].StrictHash = s.StrictHash
 		manager[i].StrictManifests = s.StrictManifests
 
-		go func(sm *pki.SimpleManager) {
+		go func(sm *pki.SimpleManager, tal *pki.PKIFile) {
 			for err := range sm.Errors {
 				tSpan.SetTag("error", true)
 				tSpan.LogKV("event", "resource issue", "type", "skipping resource", "message", err)
@@ -844,7 +844,7 @@ func (s *state) MainValidation(pSpan opentracing.Span) {
 			}
 
 			//log.Warn("Closed errors")
-		}(sm)
+		}(sm, tal)
 		manager[i].AddInitial([]*pki.PKIFile{tal})
 		s.CountExplore = manager[i].Explore(!s.UseManifest, false)
 
