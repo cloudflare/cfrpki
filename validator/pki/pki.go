@@ -596,7 +596,10 @@ func (v *Validator) ValidateROA(roa *librpki.RPKIROA) error {
 }
 
 func (v *Validator) AddManifest(pkifile *PKIFile, mft *librpki.RPKIManifest) (bool, []*PKIFile, *Resource, error) {
-	pathCert := ExtractPathManifest(mft)
+	pathCert, err := ExtractPathManifest(mft)
+	if err != nil {
+		return false, nil, nil, fmt.Errorf("ExtractPathManifest failed: %v", err)
+	}
 
 	valid, _, res, err := v.AddCert(mft.Certificate, false)
 	if res == nil {
@@ -751,14 +754,16 @@ func ExtractPathCert(cert *librpki.RPKICertificate) []*PKIFile {
 }
 
 // Returns the list of files from the Manifest
-func ExtractPathManifest(mft *librpki.RPKIManifest) []*PKIFile {
+func ExtractPathManifest(mft *librpki.RPKIManifest) ([]*PKIFile, error) {
 	fileList := make([]*PKIFile, 0)
 	for _, file := range mft.Content.FileList {
 		curFile := file.Name
 		path := string(curFile)
-		// GHSA-cqh2-vc2f-q4fh: Prevent file path references to parent
+		// GHSA-8459-6rc9-8vf8: Prevent file path references to parent
 		// directories.
-		path = strings.ReplaceAll(path, "../", "")
+		if strings.Contains(path, "../") || strings.Contains(path, "..\\") {
+			return nil, fmt.Errorf("Path %q contains illegal path element", path)
+		}
 		item := PKIFile{
 			Type:         DetermineType(path),
 			Path:         path,
@@ -766,7 +771,7 @@ func ExtractPathManifest(mft *librpki.RPKIManifest) []*PKIFile {
 		}
 		fileList = append(fileList, &item)
 	}
-	return fileList
+	return fileList, nil
 }
 
 func (sm *SimpleManager) AddInitial(fileList []*PKIFile) {
