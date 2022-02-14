@@ -316,8 +316,10 @@ func (s *state) WriteRsyncFileOnDisk(path string, data []byte, withdraw bool) er
 	if err != nil {
 		log.Fatal(err)
 	}
-	// GHSA-cqh2-vc2f-q4fh: Prevent parent directory writes outside of Basepath
-	fPath = strings.ReplaceAll(fPath, "../", "")
+	// GHSA-8459-6rc9-8vf8: Prevent parent directory writes outside of Basepath
+	if strings.Contains(fPath, "../") || strings.Contains(fPath, "..\\") {
+		return fmt.Errorf("Path %q contains illegal path element", fPath)
+	}
 
 	f, err := os.Create(filepath.Join(s.Basepath, fPath))
 	if err != nil {
