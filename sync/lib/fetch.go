@@ -2,12 +2,14 @@ package syncpki
 
 import (
 	"crypto/sha256"
-	"github.com/cloudflare/cfrpki/validator/lib"
-	"github.com/cloudflare/cfrpki/validator/pki"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"strings"
 	"time"
+
+	librpki "github.com/cloudflare/cfrpki/validator/lib"
+	"github.com/cloudflare/cfrpki/validator/pki"
 )
 
 type LocalFetch struct {
@@ -28,8 +30,14 @@ func (s *LocalFetch) SetRepositories(repositories map[string]time.Time) {
 	s.repositories = repositories
 }
 
-func ReplaceString(pathRep string, replace map[string]string) string {
+func GetLocalPath(pathRep string, replace map[string]string) string {
+	sep := fmt.Sprintf("%c", os.PathSeparator)
+
 	for repKey, repVal := range replace {
+		if !strings.HasSuffix(repVal, sep) {
+			repVal += sep
+		}
+
 		pathRep = strings.Replace(pathRep, repKey, repVal, -1)
 	}
 	return pathRep
@@ -37,7 +45,7 @@ func ReplaceString(pathRep string, replace map[string]string) string {
 
 func ReplacePath(file *pki.PKIFile, replace map[string]string) string {
 	pathRep := file.ComputePath()
-	pathRep = ReplaceString(pathRep, replace)
+	pathRep = GetLocalPath(pathRep, replace)
 	return pathRep
 }
 
@@ -113,7 +121,7 @@ func (s *LocalFetch) GetFileConv(file *pki.PKIFile, convert bool) (*pki.SeekFile
 }
 
 func (s *LocalFetch) GetRepository(file *pki.PKIFile, callback pki.CallbackExplore) error {
-	newPath := ReplaceString(file.Repo, s.MapDirectory)
+	newPath := GetLocalPath(file.Repo, s.MapDirectory)
 	repoFile, err := os.Open(newPath)
 	if err != nil {
 		return err
