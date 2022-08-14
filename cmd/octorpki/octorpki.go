@@ -1011,7 +1011,7 @@ func (s *state) ServeROAs(w http.ResponseWriter, r *http.Request) {
 		etag := sha256.New()
 		etag.Write([]byte(fmt.Sprintf("%v/%v", tmp.Metadata.Generated, tmp.Metadata.Counts)))
 		etagSum := etag.Sum(nil)
-		etagSumHex := hex.EncodeToString(etagSum)
+		etagSumHex := "\"" + hex.EncodeToString(etagSum) + "\""
 
 		if match := r.Header.Get("If-None-Match"); match != "" {
 			if match == etagSumHex {
