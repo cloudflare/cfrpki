@@ -12,7 +12,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -251,7 +250,7 @@ type OctoRPKI struct {
 	ROAListLock *sync.RWMutex
 
 	// Various counters and statistics
-	RRDPStats          map[string]Stats
+	RRDPStats          map[string]*Stats
 	RsyncStats         map[string]Stats
 	CountExplore       int
 	ValidationDuration time.Duration
@@ -297,30 +296,33 @@ func ExtractRsyncDomain(rsync string) (string, error) {
 	}
 }
 
-func (s *OctoRPKI) WriteRsyncFileOnDisk(path string, data []byte, withdraw bool) error {
+func (s *OctoRPKI) WriteRsyncFileOnDisk(path string, data []byte) error {
 	fPath, err := syncpki.GetDownloadPath(path, true)
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	err = os.MkdirAll(filepath.Join(s.Basepath, fPath), os.ModePerm)
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	fPath, err = syncpki.GetDownloadPath(path, false)
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	// GHSA-8459-6rc9-8vf8: Prevent parent directory writes outside of Basepath
 	if strings.Contains(fPath, "../") || strings.Contains(fPath, "..\\") {
 		return fmt.Errorf("Path %q contains illegal path element", fPath)
 	}
 
-	f, err := os.Create(filepath.Join(s.Basepath, fPath))
+	fp := filepath.Join(s.Basepath, fPath)
+	err = ioutil.WriteFile(fp, data, 0600)
 	if err != nil {
-		return err
+		return fmt.Errorf("Unable to write file %q: %v", fp, err)
 	}
-	f.Write(data)
-	f.Close()
+
 	return nil
 }
 
@@ -333,7 +335,7 @@ func (s *OctoRPKI) ReceiveRRDPFileCallback(main string, url string, path string,
 		}
 	}
 
-	err := s.WriteRsyncFileOnDisk(path, data, withdraw)
+	err := s.WriteRsyncFileOnDisk(path, data)
 	if err != nil {
 		return err
 	}
@@ -343,39 +345,39 @@ func (s *OctoRPKI) ReceiveRRDPFileCallback(main string, url string, path string,
 			"address": main,
 			"type":    "rrdp",
 		}).Inc()
-	tmpStats := s.RRDPStats[main]
-	tmpStats.Count++
-	tmpStats.RRDPLastFile = url
-	s.RRDPStats[main] = tmpStats
+
+	s.RRDPStats[main].Count++
+	s.RRDPStats[main].RRDPLastFile = url
 	return nil
 }
 
 func (s *OctoRPKI) LoadRRDP(file string) error {
-	f, err := os.Open(file)
+	fc, err := ioutil.ReadFile(file)
 	if err != nil {
-		return err
+		return fmt.Errorf("Unable to read file %q: %v", file, err)
 	}
-	defer f.Close()
 
-	info := make(map[string]RRDPInfo)
-	dec := json.NewDecoder(f)
-	err = dec.Decode(&info)
-	if err != nil && err != io.EOF {
-		return err
+	s.RRDPInfo = make(map[string]RRDPInfo)
+	err = json.Unmarshal(fc, &s.RRDPInfo)
+	if err != nil {
+		return fmt.Errorf("JSON unmarshal failed: %v", err)
 	}
-	s.RRDPInfo = info
+
 	return nil
 }
 
 func (s *OctoRPKI) SaveRRDP(file string) error {
-	f, err := os.Create(file)
+	fc, err := json.Marshal(file)
 	if err != nil {
-		return err
+		return fmt.Errorf("JSON marshal failed: %v", err)
 	}
-	defer f.Close()
 
-	dec := json.NewEncoder(f)
-	return dec.Encode(s.RRDPInfo)
+	err = ioutil.WriteFile(file, fc, 0600)
+	if err != nil {
+		return fmt.Errorf("Unable to write file %q: %v", file, err)
+	}
+
+	return nil
 }
 
 func (s *OctoRPKI) MainRRDP(pSpan opentracing.Span) {
@@ -396,9 +398,7 @@ func (s *OctoRPKI) MainRRDP(pSpan opentracing.Span) {
 		rSpan.SetTag("type", "rrdp")
 		log.Infof("RRDP sync %v", path)
 
-		rrdpid := rsync
-
-		info := s.RRDPInfo[rrdpid]
+		info := s.RRDPInfo[rsync]
 
 		MetricSIACounts.With(
 			prometheus.Labels{
@@ -406,11 +406,14 @@ func (s *OctoRPKI) MainRRDP(pSpan opentracing.Span) {
 				"type":    "rrdp",
 			}).Set(0)
 
-		tmpStats := s.RRDPStats[path]
-		tmpStats.URI = path
-		tmpStats.Iteration++
-		tmpStats.Count = 0
-		s.RRDPStats[path] = tmpStats
+		if _, exists := s.RRDPStats[path]; !exists {
+			s.RRDPStats[path] = &Stats{}
+		}
+
+		s.RRDPStats[path].URI = path
+		s.RRDPStats[path].Iteration++
+		s.RRDPStats[path].Count = 0
+
 		t1 := time.Now().UTC()
 
 		rrdp := &syncpki.RRDPSystem{
@@ -457,12 +460,11 @@ func (s *OctoRPKI) MainRRDP(pSpan opentracing.Span) {
 					"address": path,
 				}).Inc()
 
-			tmpStats = s.RRDPStats[path]
-			tmpStats.Errors++
-			tmpStats.LastFetchError = int(time.Now().UTC().UnixNano() / 1000000000)
-			tmpStats.LastError = fmt.Sprint(err)
-			tmpStats.Duration = t2.Sub(t1).Seconds()
-			s.RRDPStats[path] = tmpStats
+			s.RRDPStats[path].Errors++
+			s.RRDPStats[path].LastFetchError = int(time.Now().Unix())
+			s.RRDPStats[path].LastError = err.Error()
+			s.RRDPStats[path].Duration = t2.Sub(t1).Seconds()
+
 			rSpan.Finish()
 			continue
 		} else {
@@ -490,14 +492,13 @@ func (s *OctoRPKI) MainRRDP(pSpan opentracing.Span) {
 				"address": path,
 				"type":    "rrdp",
 			}).Set(float64(lastFetch))
-		tmpStats = s.RRDPStats[path]
-		tmpStats.LastFetch = int(lastFetch)
-		tmpStats.RRDPSerial = rrdp.Serial
-		tmpStats.RRDPSessionID = rrdp.SessionID
-		tmpStats.Duration = t2.Sub(t1).Seconds()
-		s.RRDPStats[path] = tmpStats
 
-		s.RRDPInfo[rrdpid] = RRDPInfo{
+		s.RRDPStats[path].LastFetch = int(lastFetch)
+		s.RRDPStats[path].RRDPSerial = rrdp.Serial
+		s.RRDPStats[path].RRDPSessionID = rrdp.SessionID
+		s.RRDPStats[path].Duration = t2.Sub(t1).Seconds()
+
+		s.RRDPInfo[rsync] = RRDPInfo{
 			Rsync:     rsync,
 			Path:      path,
 			SessionID: rrdp.SessionID,
@@ -744,7 +745,7 @@ func (s *OctoRPKI) MainTAL(pSpan opentracing.Span) {
 				}
 
 				// Plan option to store everything in memory
-				err = s.WriteRsyncFileOnDisk(tal.GetRsyncURI(), data, false)
+				err = s.WriteRsyncFileOnDisk(tal.GetRsyncURI(), data)
 				if err != nil {
 					tfSpan.SetTag("error", true)
 					tfSpan.SetTag("message", err)
@@ -1248,7 +1249,7 @@ func main() {
 		ROAListLock: &sync.RWMutex{},
 
 		RsyncStats:    make(map[string]Stats),
-		RRDPStats:     make(map[string]Stats),
+		RRDPStats:     make(map[string]*Stats),
 		ROAsTALsCount: make([]ROAsTAL, 0),
 
 		InfoAuthorities:     make([][]SIA, 0),
