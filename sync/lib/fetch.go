@@ -50,27 +50,21 @@ func ReplacePath(file *pki.PKIFile, replace map[string]string) string {
 }
 
 func FetchFile(path string, conv bool) ([]byte, []byte, error) {
-
-	f, err := os.Open(path)
+	fc, err := ioutil.ReadFile(path)
 	if err != nil {
-		return nil, nil, err
-	}
-	defer f.Close()
-	data, err := ioutil.ReadAll(f)
-	if err != nil {
-		return data, nil, err
+		return nil, nil, fmt.Errorf("Unable to read file %q: %v", path, err)
 	}
 
-	tmpSha265 := sha256.Sum256(data)
+	tmpSha265 := sha256.Sum256(fc)
 	sha256 := tmpSha265[:]
 
 	if conv {
-		data, err = librpki.BER2DER(data)
+		fc, err = librpki.BER2DER(fc)
 		if err != nil {
-			return data, sha256, err
+			return fc, sha256, err
 		}
 	}
-	return data, sha256, err
+	return fc, sha256, err
 }
 
 func ParseMapDirectory(mapdir string) map[string]string {
