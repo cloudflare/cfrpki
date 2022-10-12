@@ -49,7 +49,7 @@ func ReplacePath(file *pki.PKIFile, replace map[string]string) string {
 	return pathRep
 }
 
-func FetchFile(path string, conv bool) ([]byte, []byte, error) {
+func FetchFile(path string, derEncoding bool) ([]byte, []byte, error) {
 	fc, err := ioutil.ReadFile(path)
 	if err != nil {
 		return nil, nil, fmt.Errorf("Unable to read file %q: %v", path, err)
@@ -58,13 +58,16 @@ func FetchFile(path string, conv bool) ([]byte, []byte, error) {
 	tmpSha265 := sha256.Sum256(fc)
 	sha256 := tmpSha265[:]
 
-	if conv {
-		fc, err = librpki.BER2DER(fc)
-		if err != nil {
-			return fc, sha256, err
-		}
+	if !derEncoding {
+		return fc, sha256, nil
 	}
-	return fc, sha256, err
+
+	fc, err = librpki.BER2DER(fc)
+	if err != nil {
+		return nil, nil, fmt.Errorf("librpki.BER2DER failed: %v", err)
+	}
+
+	return fc, sha256, nil
 }
 
 func ParseMapDirectory(mapdir string) map[string]string {
@@ -116,51 +119,51 @@ func (s *LocalFetch) GetFileConv(file *pki.PKIFile, convert bool) (*pki.SeekFile
 
 func (s *LocalFetch) GetRepository(file *pki.PKIFile, callback pki.CallbackExplore) error {
 	newPath := GetLocalPath(file.Repo, s.MapDirectory)
-	repoFile, err := os.Open(newPath)
+	files, err := ioutil.ReadDir(file.Repo)
 	if err != nil {
-		return err
+		return fmt.Errorf("Unable to read dir %q: %v", file.Repo, err)
 	}
-	files, err := repoFile.Readdir(0)
-	if err != nil {
-		return err
-	}
+
 	for _, fileDir := range files {
-		if fileDir != nil && !fileDir.IsDir() {
-			data, sha256, err := FetchFile(newPath+fileDir.Name(), true)
-			if err != nil {
-				return err
-			}
-
-			fullnameSplit := strings.Split(fileDir.Name(), ".")
-
-			extension := pki.TYPE_UNKNOWN
-			if len(fullnameSplit) > 0 {
-				switch fullnameSplit[len(fullnameSplit)-1] {
-				case "crl":
-					extension = pki.TYPE_CRL
-				case "cer":
-					extension = pki.TYPE_CER
-				case "mft":
-					extension = pki.TYPE_MFT
-				case "roa":
-					extension = pki.TYPE_ROA
-				}
-			}
-
-			callback(
-				&pki.PKIFile{
-					Parent: file,
-					Type:   extension,
-					Repo:   file.Repo,
-					Path:   file.Repo + fileDir.Name(),
-				},
-				&pki.SeekFile{
-					File:   file.Path,
-					Data:   data,
-					Sha256: sha256,
-				}, false)
+		if fileDir == nil || fileDir.IsDir() {
+			continue
 		}
+
+		data, sha256, err := FetchFile(newPath+fileDir.Name(), true)
+		if err != nil {
+			return fmt.Errorf("FetchFile failed: %v", err)
+		}
+
+		fullnameSplit := strings.Split(fileDir.Name(), ".")
+
+		extension := pki.TYPE_UNKNOWN
+		if len(fullnameSplit) > 0 {
+			switch fullnameSplit[len(fullnameSplit)-1] {
+			case "crl":
+				extension = pki.TYPE_CRL
+			case "cer":
+				extension = pki.TYPE_CER
+			case "mft":
+				extension = pki.TYPE_MFT
+			case "roa":
+				extension = pki.TYPE_ROA
+			}
+		}
+
+		callback(
+			&pki.PKIFile{
+				Parent: file,
+				Type:   extension,
+				Repo:   file.Repo,
+				Path:   file.Repo + fileDir.Name(),
+			},
+			&pki.SeekFile{
+				File:   file.Path,
+				Data:   data,
+				Sha256: sha256,
+			}, false)
+
 	}
-	//return errors.New(fmt.Sprintf("Not implemented %v", file))
+
 	return nil
 }

@@ -2,11 +2,12 @@ package cfrpki
 
 import (
 	"context"
-	"github.com/cloudflare/cfrpki/validator/lib"
-	"github.com/cloudflare/cfrpki/validator/pki"
+	"fmt"
 	"io/ioutil"
-	"os"
 	"strings"
+
+	librpki "github.com/cloudflare/cfrpki/validator/lib"
+	"github.com/cloudflare/cfrpki/validator/pki"
 )
 
 type APIFetch struct {
@@ -31,28 +32,28 @@ func FetchFile(client RPKIAPIClient, ctx context.Context, path string) ([]byte, 
 
 func (s *APIFetch) GetFile(file *pki.PKIFile) (*pki.SeekFile, error) {
 	if file.Type == pki.TYPE_TAL {
-		path := file.Path
-		talFile, err := os.Open(path)
+		data, err := ioutil.ReadFile(file.Path)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("Unable to read file %q: %v", file.Path, err)
 		}
-		data, err := ioutil.ReadAll(talFile)
-		if err != nil {
-			return nil, err
-		}
+
 		return &pki.SeekFile{
-			File: path,
+			File: file.Path,
 			Data: data,
-		}, err
+		}, nil
 	}
 
 	path := file.ComputePath()
 
 	data, err := FetchFile(s.Client, s.Ctx, path)
+	if err != nil {
+		return nil, fmt.Errorf("FetchFile failed: %v", err)
+	}
+
 	return &pki.SeekFile{
 		File: path,
 		Data: data,
-	}, err
+	}, nil
 }
 
 func (s *APIFetch) GetRepository(file *pki.PKIFile, callback pki.CallbackExplore) error {

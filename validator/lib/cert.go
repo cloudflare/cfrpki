@@ -432,9 +432,36 @@ type RPKICertificate struct {
 	ASNRDI                   []ASNCertificateInformation
 
 	Certificate *x509.Certificate
+}
 
-	//SubjectKeyIdentifier []byte // Replace by certificate content
-	//AuthorityKeyIdentifier []byte
+func (cert *RPKICertificate) HasRRDP() bool {
+	for _, sia := range cert.SubjectInformationAccess {
+		if sia.AccessMethod.Equal(CertRRDP) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (cert *RPKICertificate) GetRRDPGeneralName() string {
+	for _, sia := range cert.SubjectInformationAccess {
+		if sia.AccessMethod.Equal(CertRRDP) {
+			return string(sia.GeneralName)
+		}
+	}
+
+	return ""
+}
+
+func (cert *RPKICertificate) GetRsyncGeneralName() string {
+	for _, sia := range cert.SubjectInformationAccess {
+		if sia.AccessMethod.Equal(CertRepository) {
+			return string(sia.GeneralName)
+		}
+	}
+
+	return ""
 }
 
 func (cert *RPKICertificate) IsIPRangeInCertificate(min net.IP, max net.IP) (bool, bool) {
