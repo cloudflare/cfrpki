@@ -11,34 +11,35 @@ import (
 	"strings"
 )
 
-var (
-	reDeletion = regexp.MustCompile("^deleting (.*)")
-	reMatch    = regexp.MustCompile("(.*\\.(cer|mft|crl|roa|gbr))$")
+const (
+	RsyncProtoPrefix = "rsync://"
 )
 
-// Check if string is a file
-func GetMatch(str string) bool {
-	return reMatch.MatchString(str)
+var (
+	reDeletion            = regexp.MustCompile("^deleting (.*)")
+	wantedFileExtensionRE = regexp.MustCompile("(.*\\.(cer|mft|crl|roa|gbr))$")
+)
+
+func ExtractFoldersPathFromRsyncURL(url string) (string, error) {
+	if !isRsyncURL(url) {
+		return "", fmt.Errorf("%q is not an rsync URL", url)
+	}
+
+	filePath := strings.TrimPrefix(url, RsyncProtoPrefix)
+	parts := strings.Split(filePath, "/")
+	return strings.Join(parts[0:len(parts)-1], "/"), nil
 }
 
-func GetDownloadPath(sync string, trimFile bool) (string, error) {
-	// Trim protocol "rsync://" from path
-	if len(sync) <= 8 || sync[0:8] != "rsync://" {
-		return "", errors.New(fmt.Sprintf("Incorrect rsync address %v", sync))
+func ExtractFilePathFromRsyncURL(url string) (string, error) {
+	if !isRsyncURL(url) {
+		return "", fmt.Errorf("%q is not an rsync URL", url)
 	}
 
-	splitSync := strings.Split(sync[8:], "/")
+	return strings.TrimPrefix(url, RsyncProtoPrefix), nil
+}
 
-	if sync[len(sync)-1] != '/' && len(splitSync) > 2 && trimFile {
-		splitSync = splitSync[0 : len(splitSync)-1]
-	}
-
-	joinFiles := strings.Join(splitSync, "/")
-
-	if GetMatch(sync) == true {
-		joinFiles = strings.TrimSuffix(joinFiles, "/")
-	}
-	return joinFiles, nil
+func isRsyncURL(url string) bool {
+	return strings.HasPrefix(url, RsyncProtoPrefix)
 }
 
 // Determines if file has been deleted
@@ -119,7 +120,7 @@ func (s *RsyncSystem) RunRsync(ctx context.Context, uri string, bin string, dirP
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		match := GetMatch(line)
+		match := wantedFileExtensionRE.MatchString(line)
 		if s.Log != nil {
 			s.Log.Debugf("Rsync received from %v: %v (match=%v)", uri, line, match)
 		}
