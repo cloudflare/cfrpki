@@ -669,15 +669,6 @@ func (v *Validator) AddCRL(crl *pkix.CertificateList) (bool, *Resource, error) {
 		} else {
 			v.ValidCRL[string(aki)] = res
 			for _, revoked := range crl.TBSCertList.RevokedCertificates {
-				/*for _, child := range parent.Childs {
-					switch child := child.Resource.(type) {
-					case *librpki.RPKI_Certificate:
-						if child.Certificate.SerialNumber.Cmp(revoked.SerialNumber) == 0 {
-							err = v.InvalidateObject(child.Certificate.SubjectKeyId)
-							// Handle error?
-						}
-					}
-				}*/
 				key := string(aki) + revoked.SerialNumber.String()
 				child, found := v.CertsSerial[key]
 				if found {
@@ -825,16 +816,7 @@ func (sm *SimpleManager) ExploreAdd(file *PKIFile, data *SeekFile, addInvalidChi
 	sm.Explored[file.ComputePath()] = true
 	valid, subFiles, res, err := sm.Validator.AddResource(file, data.Data)
 
-	/*if !valid || err != nil {
-		if sm.StrictManifests {
-			// will also invalidate when ROA is expired
-			sm.InvalidateManifestParent(file, err)
-		}
-	}*/
-
 	if err != nil {
-		//sm.InvalidateCRLParent(file, err)
-
 		switch err.(type) {
 		case *FileError:
 		case *ResourceError:
@@ -911,7 +893,6 @@ func (sm *SimpleManager) Explore(notMFT bool, addInvalidChilds bool) int {
 				// This invalidates the Manifests' CA when a file is not found
 				if sm.StrictManifests {
 					sm.InvalidateManifestParent(file, nil)
-					//sm.reportErrorFile(err, file, data)
 				}
 
 			}

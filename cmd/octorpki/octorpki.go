@@ -248,10 +248,8 @@ type OctoRPKI struct {
 	// Various counters and statistics
 	RRDPStats          map[string]*Stats
 	RsyncStats         map[string]Stats
-	CountExplore       int
 	ValidationDuration time.Duration
 	Iteration          int
-	ValidationMessages []string
 	ROAsTALsCount      []ROAsTAL
 
 	InfoAuthorities     [][]SIA
@@ -261,7 +259,7 @@ type OctoRPKI struct {
 func (s *OctoRPKI) MainReduce() bool {
 	t1 := time.Now()
 	defer func() {
-		t2 := time.Now().UTC()
+		t2 := time.Now()
 		MetricOperationTime.With(prometheus.Labels{"type": "reduce"}).Observe(float64(t2.Sub(t1).Seconds()))
 	}()
 
@@ -364,7 +362,7 @@ func (s *OctoRPKI) LoadRRDP(file string) error {
 }
 
 func (s *OctoRPKI) SaveRRDP(file string) error {
-	fc, err := json.Marshal(file)
+	fc, err := json.Marshal(s.RRDPInfo)
 	if err != nil {
 		return fmt.Errorf("JSON marshal failed: %v", err)
 	}
@@ -379,129 +377,117 @@ func (s *OctoRPKI) SaveRRDP(file string) error {
 
 func (s *OctoRPKI) MainRRDP(pSpan opentracing.Span) {
 	tracer := opentracing.GlobalTracer()
-	span := tracer.StartSpan(
-		"rrdp",
-		opentracing.ChildOf(pSpan.Context()),
-	)
+	span := tracer.StartSpan("rrdp", opentracing.ChildOf(pSpan.Context()))
 	defer span.Finish()
 
 	for path, rsync := range s.RRDPFetch {
-		rSpan := tracer.StartSpan(
-			"sync",
-			opentracing.ChildOf(span.Context()),
-		)
-		rSpan.SetTag("rrdp", path)
-		rSpan.SetTag("rsync", rsync)
-		rSpan.SetTag("type", "rrdp")
-		log.Infof("RRDP sync %v", path)
+		s.fetchRRDP(path, rsync, span)
+	}
+}
 
-		info := s.RRDPInfo[rsync]
+func (s *OctoRPKI) fetchRRDP(path string, rsyncURL string, span opentracing.Span) {
+	tracer := opentracing.GlobalTracer()
+	rSpan := tracer.StartSpan("sync", opentracing.ChildOf(span.Context()))
+	defer rSpan.Finish()
 
-		MetricSIACounts.With(
-			prometheus.Labels{
-				"address": path,
-				"type":    "rrdp",
-			}).Set(0)
+	rSpan.SetTag("rrdp", path)
+	rSpan.SetTag("rsync", rsyncURL)
+	rSpan.SetTag("type", "rrdp")
+	log.Infof("RRDP sync %v", path)
 
-		if _, exists := s.RRDPStats[path]; !exists {
-			s.RRDPStats[path] = &Stats{}
-		}
+	MetricSIACounts.With(prometheus.Labels{"address": path, "type": "rrdp"}).Set(0)
 
-		s.RRDPStats[path].URI = path
-		s.RRDPStats[path].Iteration++
-		s.RRDPStats[path].Count = 0
+	if _, exists := s.RRDPStats[path]; !exists {
+		s.RRDPStats[path] = &Stats{}
+	}
 
-		t1 := time.Now().UTC()
+	s.RRDPStats[path].URI = path
+	s.RRDPStats[path].Iteration++
+	s.RRDPStats[path].Count = 0
 
-		rrdp := &syncpki.RRDPSystem{
-			Callback: s.ReceiveRRDPFileCallback,
+	t1 := time.Now()
 
-			Path:    path,
-			Fetcher: s.HTTPFetcher,
+	rrdp := s.getRRDPSystem(path, rsyncURL)
 
-			SessionID: info.SessionID,
-			Serial:    info.Serial,
+	err := rrdp.FetchRRDP(s.RRDPFetchDomain[path])
+	t2 := time.Now()
+	if err != nil {
+		rSpan.SetTag("error", true)
 
-			Log: log.StandardLogger(),
-		}
-		err := rrdp.FetchRRDP(s.RRDPFetchDomain[path])
-		t2 := time.Now().UTC()
-		if err != nil {
-			rSpan.SetTag("error", true)
-
-			sentry.WithScope(func(scope *sentry.Scope) {
-				if errC, ok := err.(interface{ SetURL(string, string) }); ok {
-					errC.SetURL(path, rsync)
-				}
-				if errC, ok := err.(interface{ SetSentryScope(*sentry.Scope) }); ok {
-					errC.SetSentryScope(scope)
-				}
-				rrdp.SetSentryScope(scope)
-				scope.SetTag("Rsync", rsync)
-				scope.SetTag("RRDP", path)
-				sentry.CaptureException(err)
-			})
-
-			// GHSA-g9wh-3vrx-r7hg: Do not process responses that are too large
-			if *RRDPFailover && err.Error() != "http: request body too large" {
-				log.Errorf("Error when processing %v (for %v): %v. Will add to rsync.", path, rsync, err)
-				rSpan.LogKV("event", "rrdp failure", "type", "failover to rsync", "message", err)
-			} else {
-				log.Errorf("Error when processing %v (for %v): %v.Skipping failover to rsync.", path, rsync, err)
-				rSpan.LogKV("event", "rrdp failure", "type", "skipping failover to rsync", "message", err)
-				delete(s.RsyncFetch, rsync)
-			}
-
-			MetricRRDPErrors.With(
-				prometheus.Labels{
-					"address": path,
-				}).Inc()
-
-			s.RRDPStats[path].Errors++
-			s.RRDPStats[path].LastFetchError = int(time.Now().Unix())
-			s.RRDPStats[path].LastError = err.Error()
-			s.RRDPStats[path].Duration = t2.Sub(t1).Seconds()
-
-			rSpan.Finish()
-			continue
-		} else {
-			log.Debugf("Success fetching %s, removing rsync %s", path, rsync)
-			delete(s.RsyncFetch, rsync)
-		}
-
-		rSpan.LogKV("event", "rrdp", "type", "success", "message", "rrdp successfully fetched")
 		sentry.WithScope(func(scope *sentry.Scope) {
-			scope.SetLevel(sentry.LevelInfo)
-			scope.SetTag("Rsync", rsync)
-			scope.SetTag("RRDP", path)
+			if errC, ok := err.(interface{ SetURL(string, string) }); ok {
+				errC.SetURL(path, rsyncURL)
+			}
+			if errC, ok := err.(interface{ SetSentryScope(*sentry.Scope) }); ok {
+				errC.SetSentryScope(scope)
+			}
 			rrdp.SetSentryScope(scope)
-			sentry.CaptureMessage("fetched rrdp successfully")
+			scope.SetTag("Rsync", rsyncURL)
+			scope.SetTag("RRDP", path)
+			sentry.CaptureException(err)
 		})
 
-		rSpan.Finish()
-		MetricRRDPSerial.With(
-			prometheus.Labels{
-				"address": path,
-			}).Set(float64(rrdp.Serial))
-		lastFetch := time.Now().Unix()
-		MetricLastFetch.With(
-			prometheus.Labels{
-				"address": path,
-				"type":    "rrdp",
-			}).Set(float64(lastFetch))
-
-		s.RRDPStats[path].LastFetch = int(lastFetch)
-		s.RRDPStats[path].RRDPSerial = rrdp.Serial
-		s.RRDPStats[path].RRDPSessionID = rrdp.SessionID
-		s.RRDPStats[path].Duration = t2.Sub(t1).Seconds()
-
-		s.RRDPInfo[rsync] = RRDPInfo{
-			Rsync:     rsync,
-			Path:      path,
-			SessionID: rrdp.SessionID,
-			Serial:    rrdp.Serial,
+		// GHSA-g9wh-3vrx-r7hg: Do not process responses that are too large
+		if *RRDPFailover && err.Error() != "http: request body too large" {
+			log.Errorf("Error when processing %v (for %v): %v. Will add to rsync.", path, rsyncURL, err)
+			rSpan.LogKV("event", "rrdp failure", "type", "failover to rsync", "message", err)
+		} else {
+			log.Errorf("Error when processing %v (for %v): %v.Skipping failover to rsync.", path, rsyncURL, err)
+			rSpan.LogKV("event", "rrdp failure", "type", "skipping failover to rsync", "message", err)
+			delete(s.RsyncFetch, rsyncURL)
 		}
+
+		s.rrdpError(path, err, t1, t2)
+		return
 	}
+
+	log.Debugf("Success fetching %s, removing rsync %s", path, rsyncURL)
+	delete(s.RsyncFetch, rsyncURL)
+
+	rSpan.LogKV("event", "rrdp", "type", "success", "message", "rrdp successfully fetched")
+	sentry.WithScope(func(scope *sentry.Scope) {
+		scope.SetLevel(sentry.LevelInfo)
+		scope.SetTag("Rsync", rsyncURL)
+		scope.SetTag("RRDP", path)
+		rrdp.SetSentryScope(scope)
+		sentry.CaptureMessage("fetched rrdp successfully")
+	})
+
+	MetricRRDPSerial.With(prometheus.Labels{"address": path}).Set(float64(rrdp.Serial))
+
+	lastFetch := time.Now().Unix()
+	MetricLastFetch.With(prometheus.Labels{"address": path, "type": "rrdp"}).Set(float64(lastFetch))
+
+	s.RRDPStats[path].LastFetch = int(lastFetch)
+	s.RRDPStats[path].RRDPSerial = rrdp.Serial
+	s.RRDPStats[path].RRDPSessionID = rrdp.SessionID
+	s.RRDPStats[path].Duration = t2.Sub(t1).Seconds()
+
+	s.RRDPInfo[rsyncURL] = RRDPInfo{
+		Rsync:     rsyncURL,
+		Path:      path,
+		SessionID: rrdp.SessionID,
+		Serial:    rrdp.Serial,
+	}
+}
+
+func (s *OctoRPKI) getRRDPSystem(path string, rsync string) *syncpki.RRDPSystem {
+	return &syncpki.RRDPSystem{
+		Callback:  s.ReceiveRRDPFileCallback,
+		Path:      path,
+		Fetcher:   s.HTTPFetcher,
+		SessionID: s.RRDPInfo[rsync].SessionID,
+		Serial:    s.RRDPInfo[rsync].Serial,
+		Log:       log.StandardLogger(),
+	}
+}
+
+func (s *OctoRPKI) rrdpError(path string, err error, t1 time.Time, t2 time.Time) {
+	MetricRRDPErrors.With(prometheus.Labels{"address": path}).Inc()
+	s.RRDPStats[path].Errors++
+	s.RRDPStats[path].LastFetchError = int(time.Now().Unix())
+	s.RRDPStats[path].LastError = err.Error()
+	s.RRDPStats[path].Duration = t2.Sub(t1).Seconds()
 }
 
 func (s *OctoRPKI) MainRsync(pSpan opentracing.Span) {
@@ -539,9 +525,9 @@ func (s *OctoRPKI) MainRsync(pSpan opentracing.Span) {
 
 		path := filepath.Join(*Basepath, downloadPath)
 		ctxRsync, cancelRsync := context.WithTimeout(context.Background(), *RsyncTimeout)
-		t1 := time.Now().UTC()
+		t1 := time.Now()
 		files, err := rsync.RunRsync(ctxRsync, uri, *RsyncBin, path)
-		t2 := time.Now().UTC()
+		t2 := time.Now()
 		if err != nil {
 			rSpan.SetTag("error", true)
 			rSpan.LogKV("event", "rsync failure", "message", err)
@@ -583,17 +569,9 @@ func (s *OctoRPKI) MainRsync(pSpan opentracing.Span) {
 
 		rSpan.Finish()
 
-		MetricSIACounts.With(
-			prometheus.Labels{
-				"address": uri,
-				"type":    "rsync",
-			}).Set(float64(countFiles))
+		MetricSIACounts.With(prometheus.Labels{"address": uri, "type": "rsync"}).Set(float64(countFiles))
 		lastFetch := time.Now().Unix()
-		MetricLastFetch.With(
-			prometheus.Labels{
-				"address": uri,
-				"type":    "rsync",
-			}).Set(float64(lastFetch))
+		MetricLastFetch.With(prometheus.Labels{"address": uri, "type": "rsync"}).Set(float64(lastFetch))
 		tmpStats = s.RsyncStats[uri]
 		tmpStats.LastFetch = int(lastFetch)
 		tmpStats.Count = countFiles
@@ -603,25 +581,6 @@ func (s *OctoRPKI) MainRsync(pSpan opentracing.Span) {
 
 	t2 := time.Now()
 	MetricOperationTime.With(prometheus.Labels{"type": "rsync"}).Observe(float64(t2.Sub(t1).Seconds()))
-}
-
-func (s *OctoRPKI) Debugf(msg string, args ...interface{}) {
-	log.Debugf(msg, args...)
-}
-
-func (s *OctoRPKI) Errorf(msg string, args ...interface{}) {
-	log.Errorf(msg, args...)
-	s.ValidationMessages = append(s.ValidationMessages, fmt.Sprintf(msg, args...))
-}
-
-func (s *OctoRPKI) Printf(msg string, args ...interface{}) {
-	log.Printf(msg, args...)
-	s.ValidationMessages = append(s.ValidationMessages, fmt.Sprintf(msg, args...))
-}
-
-func (s *OctoRPKI) Warnf(msg string, args ...interface{}) {
-	log.Warnf(msg, args...)
-	s.ValidationMessages = append(s.ValidationMessages, fmt.Sprintf(msg, args...))
 }
 
 func FilterDuplicates(roalist []prefixfile.ROAJson) []prefixfile.ROAJson {
@@ -672,7 +631,6 @@ func (s *OctoRPKI) MainTAL(pSpan opentracing.Span) {
 					opentracing.ChildOf(tSpan.Context()),
 				)
 				tfSpan.SetTag("uri", uri)
-				//tLogs := []interface{}{"event", "fetch tal", "uri", uri}
 
 				sHub.ConfigureScope(func(scope *sentry.Scope) {
 					scope.SetTag("tal.uri", uri)
@@ -703,7 +661,6 @@ func (s *OctoRPKI) MainTAL(pSpan opentracing.Span) {
 				if err != nil {
 					tfSpan.SetTag("error", true)
 					tfSpan.SetTag("message", err)
-					//tSpan.LogKV(setJaegerError(tLogs, err)...)
 					tfSpan.Finish()
 
 					sbc.Level = sentry.LevelError
@@ -758,7 +715,6 @@ func (s *OctoRPKI) MainTAL(pSpan opentracing.Span) {
 					continue
 				}
 
-				//tSpan.LogKV(append(tLogs, "success", true)...)
 				tfSpan.Finish()
 
 				sHub.WithScope(func(scope *sentry.Scope) {
@@ -810,31 +766,27 @@ func (s *OctoRPKI) MainValidation(pSpan opentracing.Span) {
 	)
 	defer span.Finish()
 
-	manager := make([]*pki.SimpleManager, len(s.Tals))
+	managers := make([]*pki.SimpleManager, len(s.Tals))
 	for i, tal := range s.Tals {
-		tSpan := tracer.StartSpan(
-			"explore",
-			opentracing.ChildOf(span.Context()),
-		)
+		tSpan := tracer.StartSpan("explore", opentracing.ChildOf(span.Context()))
 		tSpan.SetTag("tal", tal.Path)
 
 		validator := pki.NewValidator()
 		validator.DecoderConfig.ValidateStrict = *StrictCms
 
 		sm := pki.NewSimpleManager()
-		manager[i] = sm
-		manager[i].ReportErrors = true
-		manager[i].Validator = validator
-		manager[i].FileSeeker = s.Fetcher
-		manager[i].Log = s
-		manager[i].StrictHash = *StrictHash
-		manager[i].StrictManifests = *StrictManifests
+		managers[i] = sm
+		managers[i].ReportErrors = true
+		managers[i].Validator = validator
+		managers[i].FileSeeker = s.Fetcher
+		managers[i].Log = log.StandardLogger()
+		managers[i].StrictHash = *StrictHash
+		managers[i].StrictManifests = *StrictManifests
 
 		go func(sm *pki.SimpleManager, tal *pki.PKIFile) {
 			for err := range sm.Errors {
 				tSpan.SetTag("error", true)
 				tSpan.LogKV("event", "resource issue", "type", "skipping resource", "message", err)
-				//log.Errorf("Error when processing %v (for %v): %v.", path, rsync, err)
 				log.Error(err)
 				sentry.WithScope(func(scope *sentry.Scope) {
 					if errC, ok := err.(interface{ SetSentryScope(*sentry.Scope) }); ok {
@@ -844,74 +796,64 @@ func (s *OctoRPKI) MainValidation(pSpan opentracing.Span) {
 					sentry.CaptureException(err)
 				})
 			}
-
-			//log.Warn("Closed errors")
 		}(sm, tal)
-		manager[i].AddInitial([]*pki.PKIFile{tal})
-		s.CountExplore = manager[i].Explore(!s.UseManifest, false)
+		managers[i].AddInitial([]*pki.PKIFile{tal})
+		countExplore := managers[i].Explore(!s.UseManifest, false)
 
 		// Insertion of SIAs in db to allow rsync to update the repos
 		var count int
-		for _, obj := range manager[i].Validator.TALs {
+		for _, obj := range managers[i].Validator.TALs {
 			tal := obj.Resource.(*librpki.RPKITAL)
-			//s.RsyncFetch[tal.GetURI()] = time.Now().UTC()
 			if !obj.CertTALValid {
 				s.TalsFetch[obj.File.Path] = tal
 			}
 			count++
 		}
-		for _, obj := range manager[i].Validator.ValidObjects {
-			if obj.Type == pki.TYPE_CER {
-				cer := obj.Resource.(*librpki.RPKICertificate)
-				var RsyncGN string
-				var RRDPGN string
-				var hasRRDP bool
-				for _, sia := range cer.SubjectInformationAccess {
-					gn := string(sia.GeneralName)
-					if sia.AccessMethod.Equal(CertRepository) {
-						RsyncGN = gn
-					} else if sia.AccessMethod.Equal(CertRRDP) {
-						hasRRDP = true
-						RRDPGN = gn
-					}
-				}
-				gnExtracted, gnExtractedDomain, err := syncpki.ExtractRsyncDomainModule(RsyncGN)
-				if err != nil {
-					log.Errorf("Could not add cert rsync %s due to %v", RsyncGN, err)
+
+		for _, pkiResource := range managers[i].Validator.ValidObjects {
+			if pkiResource.Type != pki.TYPE_CER {
+				continue
+			}
+
+			cer := pkiResource.Resource.(*librpki.RPKICertificate)
+			rsyncGeneralName := cer.GetRsyncGeneralName()
+			rrdpGeneralName := cer.GetRRDPGeneralName()
+
+			gnExtracted, gnExtractedDomain, err := syncpki.ExtractRsyncDomainModule(rsyncGeneralName)
+			if err != nil {
+				log.Errorf("Could not add cert rsync %s due to %v", rsyncGeneralName, err)
+				continue
+			}
+
+			if cer.HasRRDP() {
+				prev, ok := s.RRDPFetchDomain[rrdpGeneralName]
+				if ok && prev != gnExtractedDomain {
+					log.Errorf("rrdp %s tries to override %s with %s", rrdpGeneralName, prev, gnExtractedDomain)
 					continue
 				}
-
-				if hasRRDP {
-					prev, ok := s.RRDPFetchDomain[RRDPGN]
-					if ok && prev != gnExtractedDomain {
-						log.Errorf("rrdp %s tries to override %s with %s", RRDPGN, prev, gnExtractedDomain)
-						continue
-					}
-					s.RRDPFetchDomain[RRDPGN] = gnExtractedDomain
-					s.RRDPFetch[RRDPGN] = gnExtracted
-				}
-				s.RsyncFetch[gnExtracted] = RRDPGN
-				s.CurrentRepos[gnExtracted] = time.Now().UTC()
-				count++
-
-				// map the rrdp and rsync by TAL for info page
-				iaId, ok := iatmp[gnExtracted]
-				if !ok {
-					iaIdTmp := SIA{
-						gnExtracted,
-						RRDPGN,
-					}
-					ia[i] = append(ia[i], iaIdTmp)
-					iaId = &(ia[i][len(ia[i])-1])
-					iatmp[gnExtracted] = iaId
-				}
-				iaId.Rsync = gnExtracted
-				iaId.RRDP = RRDPGN
-
+				s.RRDPFetchDomain[rrdpGeneralName] = gnExtractedDomain
+				s.RRDPFetch[rrdpGeneralName] = gnExtracted
 			}
+			s.RsyncFetch[gnExtracted] = rrdpGeneralName
+			s.CurrentRepos[gnExtracted] = time.Now()
+			count++
+
+			// map the rrdp and rsync by TAL for info page
+			iaId, ok := iatmp[gnExtracted]
+			if !ok {
+				iaIdTmp := SIA{
+					gnExtracted,
+					rrdpGeneralName,
+				}
+				ia[i] = append(ia[i], iaIdTmp)
+				iaId = &(ia[i][len(ia[i])-1])
+				iatmp[gnExtracted] = iaId
+			}
+			iaId.Rsync = gnExtracted
+			iaId.RRDP = rrdpGeneralName
 		}
 		sm.Close()
-		tSpan.LogKV("count-valid", count, "count-total", s.CountExplore)
+		tSpan.LogKV("count-valid", count, "count-total", countExplore)
 		tSpan.Finish()
 	}
 
@@ -937,7 +879,7 @@ func (s *OctoRPKI) MainValidation(pSpan opentracing.Span) {
 		}
 
 		var counttal int
-		for _, obj := range manager[i].Validator.ValidROA {
+		for _, obj := range managers[i].Validator.ValidROA {
 			roa := obj.Resource.(*librpki.RPKIROA)
 
 			for _, entry := range roa.Valids {
@@ -960,7 +902,7 @@ func (s *OctoRPKI) MainValidation(pSpan opentracing.Span) {
 				"ta": talname,
 			}).Set(float64(counttal))
 	}
-	curTime := time.Now().UTC()
+	curTime := time.Now()
 	s.LastComputed = curTime
 	validTime := curTime.Add(*ValidityDuration)
 	roalist.Metadata = prefixfile.MetaData{
@@ -991,7 +933,7 @@ func (s *OctoRPKI) MainValidation(pSpan opentracing.Span) {
 	s.ROAList = roalist
 	s.ROAListLock.Unlock()
 
-	t2 := time.Now().UTC()
+	t2 := time.Now()
 	s.ValidationDuration = t2.Sub(t1)
 	MetricOperationTime.With(prometheus.Labels{"type": "validation"}).Observe(float64(s.ValidationDuration.Seconds()))
 	MetricLastValidation.Set(float64(s.LastComputed.Unix()))
@@ -1286,7 +1228,6 @@ func main() {
 
 func (s *OctoRPKI) validationLoop() {
 	tracer := opentracing.GlobalTracer()
-	var err error
 	var spanActive bool
 	var pSpan opentracing.Span
 	var iterationsUntilStable int
@@ -1308,28 +1249,7 @@ func (s *OctoRPKI) validationLoop() {
 		span.SetTag("iteration", s.Iteration)
 
 		if *RRDP {
-			t1 := time.Now().UTC()
-			// RRDP
-			if *RRDPFile != "" {
-				err = s.LoadRRDP(*RRDPFile)
-				if err != nil {
-					sentry.CaptureException(err)
-				}
-			}
-			s.MainRRDP(span)
-			if *RRDPFile != "" {
-				s.SaveRRDP(*RRDPFile)
-				if err != nil {
-					sentry.CaptureException(err)
-				}
-			}
-
-			t2 := time.Now().UTC()
-			MetricOperationTime.With(
-				prometheus.Labels{
-					"type": "rrdp",
-				}).
-				Observe(float64(t2.Sub(t1).Seconds()))
+			s.doRRDP(span)
 		}
 
 		// HTTPs TAL
@@ -1337,8 +1257,6 @@ func (s *OctoRPKI) validationLoop() {
 		s.TalsFetch = make(map[string]*librpki.RPKITAL) // clear decoded TAL for next iteration
 
 		s.MainRsync(span)
-
-		s.ValidationMessages = make([]string, 0)
 
 		s.MainValidation(span)
 
@@ -1348,20 +1266,9 @@ func (s *OctoRPKI) validationLoop() {
 		s.HasPreviousStable.Store(s.Stable.Load())
 
 		if *Mode == "oneoff" && (s.Stable.Load() || !*WaitStable) {
-			fc, err := json.Marshal(s.ROAList)
+			err := s.output()
 			if err != nil {
-				log.Errorf("unable to marshal ROA list: %v", err)
-				continue
-			}
-
-			if *Output == "" {
-				fmt.Println(string(fc))
-			} else {
-				err := ioutil.WriteFile(*Output, fc, 0600)
-				if err != nil {
-					log.Errorf("Unable to write ROA list to %q: %v", *Output, err)
-					continue
-				}
+				log.Fatal(err)
 			}
 		}
 
@@ -1389,5 +1296,48 @@ func (s *OctoRPKI) validationLoop() {
 
 		MetricState.Set(float64(0))
 		log.Info("Still exploring. Revalidating now")
+	}
+}
+
+func (s *OctoRPKI) output() error {
+	fc, err := json.Marshal(s.ROAList)
+	if err != nil {
+		return fmt.Errorf("unable to marshal ROA list: %v", err)
+	}
+
+	if *Output == "" {
+		fmt.Println(string(fc))
+	} else {
+		err := ioutil.WriteFile(*Output, fc, 0600)
+		if err != nil {
+			return fmt.Errorf("Unable to write ROA list to %q: %v", *Output, err)
+
+		}
+	}
+
+	return nil
+}
+
+func (s *OctoRPKI) doRRDP(span opentracing.Span) {
+	t1 := time.Now()
+	defer func() {
+		t2 := time.Now()
+		MetricOperationTime.With(prometheus.Labels{"type": "rrdp"}).Observe(float64(t2.Sub(t1).Seconds()))
+	}()
+
+	if *RRDPFile != "" {
+		err := s.LoadRRDP(*RRDPFile)
+		if err != nil {
+			sentry.CaptureException(err)
+		}
+	}
+
+	s.MainRRDP(span)
+
+	if *RRDPFile != "" {
+		err := s.SaveRRDP(*RRDPFile)
+		if err != nil {
+			sentry.CaptureException(err)
+		}
 	}
 }
