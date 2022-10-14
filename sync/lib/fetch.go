@@ -10,18 +10,20 @@ import (
 
 	librpki "github.com/cloudflare/cfrpki/validator/lib"
 	"github.com/cloudflare/cfrpki/validator/pki"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type LocalFetch struct {
+	Basepath     string
 	MapDirectory map[string]string
-	Log          Logger
 	repositories map[string]time.Time
 }
 
-func NewLocalFetch(mapDirectory map[string]string, log Logger) *LocalFetch {
+func NewLocalFetch(basepath string) *LocalFetch {
 	return &LocalFetch{
-		MapDirectory: mapDirectory,
-		Log:          log,
+		Basepath:     basepath,
+		MapDirectory: map[string]string{RsyncProtoPrefix: basepath},
 		repositories: make(map[string]time.Time),
 	}
 }
@@ -72,11 +74,11 @@ func FetchFile(path string, derEncoding bool) ([]byte, []byte, error) {
 
 func ParseMapDirectory(mapdir string) map[string]string {
 	mapDirectoryFinal := make(map[string]string)
-	mapdirs_split := strings.Split(mapdir, ",")
-	for _, mapdir_u := range mapdirs_split {
-		mapdir_u_split := strings.Split(mapdir_u, "=")
-		if len(mapdir_u_split) == 2 {
-			mapDirectoryFinal[mapdir_u_split[0]] = mapdir_u_split[1]
+	mapdirsSplit := strings.Split(mapdir, ",")
+	for _, mapdirU := range mapdirsSplit {
+		mapdirUSplit := strings.Split(mapdirU, "=")
+		if len(mapdirUSplit) == 2 {
+			mapDirectoryFinal[mapdirUSplit[0]] = mapdirUSplit[1]
 		}
 	}
 	return mapDirectoryFinal
@@ -86,30 +88,27 @@ func (s *LocalFetch) GetFile(file *pki.PKIFile) (*pki.SeekFile, error) {
 	return s.GetFileConv(file, file.Type != pki.TYPE_TAL)
 }
 
-func (s *LocalFetch) GetFileConv(file *pki.PKIFile, convert bool) (*pki.SeekFile, error) {
+func (s *LocalFetch) GetFileConv(file *pki.PKIFile, derEncoding bool) (*pki.SeekFile, error) {
 	newPath := ReplacePath(file, s.MapDirectory)
-	if s.Log != nil {
-		s.Log.Debugf("Fetching %v->%v", file.Path, newPath)
-	}
-	data, sha256, err := FetchFile(newPath, convert)
+	log.Debugf("Fetching %v->%v", file.Path, newPath)
+
+	data, sha256, err := FetchFile(newPath, derEncoding)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
-	if err != nil && !os.IsNotExist(err) {
 
+	if err != nil {
 		rsyncBase, _, errExtract := ExtractRsyncDomainModule(file.Path)
-		if errExtract != nil && s.Log != nil {
-			s.Log.Errorf("error extracting rsync of %s: %v", file.Path, errExtract)
+		if errExtract != nil {
+			log.Errorf("error extracting rsync of %s: %v", file.Path, errExtract)
 		}
 
 		if _, ok := s.repositories[rsyncBase]; !ok {
-			if s.Log != nil {
-				s.Log.Debugf("Got %v but repository not yet synchronized", err)
-			}
+			log.Debugf("Got %v but repository not yet synchronized", err)
 			return nil, nil
 		}
-
 	}
+
 	return &pki.SeekFile{
 		File:   file.Path,
 		Data:   data,

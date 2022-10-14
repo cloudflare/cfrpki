@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudflare/cfrpki/sync/lib"
-	"github.com/cloudflare/cfrpki/validator/lib"
+	syncpki "github.com/cloudflare/cfrpki/sync/lib"
+	librpki "github.com/cloudflare/cfrpki/validator/lib"
 	"github.com/cloudflare/cfrpki/validator/pki"
-	"github.com/google/certificate-transparency-go"
+	ct "github.com/google/certificate-transparency-go"
 	"github.com/google/certificate-transparency-go/client"
 	"github.com/google/certificate-transparency-go/jsonclient"
 	log "github.com/sirupsen/logrus"
@@ -57,7 +57,6 @@ func main() {
 
 	s := syncpki.LocalFetch{
 		MapDirectory: mapDir,
-		Log:          log.StandardLogger(),
 	}
 
 	validator := pki.NewValidator()
