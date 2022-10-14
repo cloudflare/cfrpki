@@ -655,27 +655,10 @@ func (s *OctoRPKI) _fetchTAL(tal *librpki.RPKITAL, path string, tSpan opentracin
 	return false, ""
 }
 
-func (s *OctoRPKI) fetchTALurl(tal *librpki.RPKITAL, uri string, path string, tSpan opentracing.Span) (success bool, successURL string) {
-	if !strings.HasPrefix(uri, "http://") && !strings.HasPrefix(uri, "https://") {
-		return false, ""
-	}
-
-	tfSpan := s.tracer.StartSpan("tal-fetch-uri", opentracing.ChildOf(tSpan.Context()))
-	defer tfSpan.Finish()
-	tfSpan.SetTag("uri", uri)
-
-	sHub := sentry.CurrentHub().Clone()
-	sHub.ConfigureScope(func(scope *sentry.Scope) {
-		scope.SetTag("tal.uri", uri)
-		scope.SetTag("tal.path", path)
-	})
-
+func (s *OctoRPKI) getHTTP(uri string, tfSpan opentracing.Span, sHub *sentry.Hub) ([]byte, error) {
 	req, err := http.NewRequest("GET", uri, nil)
 	if err != nil {
-		tfSpan.SetTag("error", true)
-		tfSpan.SetTag("message", err)
-		log.Errorf("error while trying to fetch: %s: %v", uri, err)
-		return false, ""
+		return nil, fmt.Errorf("error while trying to fetch: %s: %v", uri, err)
 	}
 	req.Header.Set("User-Agent", s.HTTPFetcher.UserAgent)
 
@@ -691,44 +674,56 @@ func (s *OctoRPKI) fetchTALurl(tal *librpki.RPKITAL, uri string, path string, tS
 	// maybe add a limit in the client? To avoid downloading huge files (that wouldn't be certs)
 	resp, err := s.HTTPFetcher.Client.Do(req)
 	if err != nil {
-		tfSpan.SetTag("error", true)
-		tfSpan.SetTag("message", err)
-
 		sbc.Level = sentry.LevelError
 		sHub.AddBreadcrumb(sbc, nil)
-		log.Errorf("error while trying to fetch: %s: %v", uri, err)
 		sHub.CaptureException(err)
-		return false, ""
+		return nil, fmt.Errorf("error while trying to fetch: %s: %v", uri, err)
 	}
 
-	if resp.StatusCode != 200 {
-		msg := fmt.Sprintf("http server replied: %s", resp.Status)
+	defer resp.Body.Close()
 
-		tfSpan.SetTag("error", true)
-		tfSpan.SetTag("message", msg)
-
+	if resp.StatusCode != http.StatusOK {
 		sHub.ConfigureScope(func(scope *sentry.Scope) {
 			scope.SetLevel(sentry.LevelError)
 		})
 		sbc.Level = sentry.LevelError
 		sHub.AddBreadcrumb(sbc, nil)
-
-		log.Errorf("http server replied: %s while trying to fetch %s", resp.Status, uri)
-		sHub.CaptureMessage(msg)
-		return false, ""
+		sHub.CaptureMessage(fmt.Sprintf("http server replied: %s", resp.Status))
+		return nil, fmt.Errorf("http server replied: %s while trying to fetch %s", resp.Status, uri)
 	}
 
 	sHub.AddBreadcrumb(sbc, nil)
 
-	// check body / status code
 	data, err := ioutil.ReadAll(resp.Body)
 	tfSpan.LogKV("size", len(data))
 	if err != nil {
+		sHub.CaptureException(err)
+		return nil, fmt.Errorf("error while trying to fetch: %s: %v", uri, err)
+	}
+
+	return data, nil
+}
+
+func (s *OctoRPKI) fetchTALurl(tal *librpki.RPKITAL, uri string, path string, tSpan opentracing.Span) (success bool, successURL string) {
+	if !strings.HasPrefix(uri, "http://") && !strings.HasPrefix(uri, "https://") {
+		return false, ""
+	}
+
+	tfSpan := s.tracer.StartSpan("tal-fetch-uri", opentracing.ChildOf(tSpan.Context()))
+	defer tfSpan.Finish()
+	tfSpan.SetTag("uri", uri)
+
+	sHub := sentry.CurrentHub().Clone()
+	sHub.ConfigureScope(func(scope *sentry.Scope) {
+		scope.SetTag("tal.uri", uri)
+		scope.SetTag("tal.path", path)
+	})
+
+	data, err := s.getHTTP(uri, tfSpan, sHub)
+	if err != nil {
 		tfSpan.SetTag("error", true)
 		tfSpan.SetTag("message", err)
-
-		log.Errorf("error while trying to fetch: %s: %v", uri, err)
-		sHub.CaptureException(err)
+		log.Errorf("error while trying to download: %s: %v", uri, err)
 		return false, ""
 	}
 
