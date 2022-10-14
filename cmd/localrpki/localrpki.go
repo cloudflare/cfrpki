@@ -4,16 +4,17 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/cloudflare/cfrpki/sync/lib"
-	"github.com/cloudflare/cfrpki/validator/lib"
-	"github.com/cloudflare/cfrpki/validator/pki"
-	log "github.com/sirupsen/logrus"
 	"io"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
+
+	syncpki "github.com/cloudflare/cfrpki/sync/lib"
+	librpki "github.com/cloudflare/cfrpki/validator/lib"
+	"github.com/cloudflare/cfrpki/validator/pki"
+	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -51,7 +52,6 @@ func main() {
 
 	s := syncpki.LocalFetch{
 		MapDirectory: mapDir,
-		Log:          log.StandardLogger(),
 	}
 
 	var vt time.Time

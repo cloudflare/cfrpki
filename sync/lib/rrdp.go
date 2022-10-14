@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/getsentry/sentry-go"
 )
@@ -22,6 +23,16 @@ type RRDPFetcher interface {
 type HTTPFetcher struct {
 	UserAgent string
 	Client    *http.Client
+}
+
+func NewHTTPFetcher(userAgent string) *HTTPFetcher {
+	return &HTTPFetcher{
+		UserAgent: userAgent,
+		Client: &http.Client{
+			// GHSA-8cvr-4rrf-f244: Prevent infinite open connections
+			Timeout: time.Second * 60,
+		},
+	}
 }
 
 func (f *HTTPFetcher) GetXML(url string) (string, error) {
