@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -56,12 +58,8 @@ type FileStat struct {
 	Deleted bool
 }
 
-type RsyncSystem struct {
-	Log Logger
-}
-
 // Runs the rsync binary on a URL
-func (s *RsyncSystem) RunRsync(ctx context.Context, uri string, bin string, dirPath string) ([]*FileStat, error) {
+func RunRsync(ctx context.Context, uri string, bin string, dirPath string) ([]*FileStat, error) {
 	if bin == "" {
 		return nil, errors.New("rsync binary missing")
 	}
@@ -72,9 +70,7 @@ func (s *RsyncSystem) RunRsync(ctx context.Context, uri string, bin string, dirP
 	}
 
 	cmd := exec.CommandContext(ctx, bin, "-vrlt", uri, dirPath)
-	if s.Log != nil {
-		s.Log.Debugf("Command ran: %v", cmd)
-	}
+	log.Debugf("Command ran: %v", cmd)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -93,14 +89,11 @@ func (s *RsyncSystem) RunRsync(ctx context.Context, uri string, bin string, dirP
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			errorStr := scanner.Text()
-			if s.Log != nil {
-				s.Log.Error(errorStr)
-			}
+			log.Error(errorStr)
+
 			err = scanner.Err()
 			if err != nil {
-				if s.Log != nil {
-					s.Log.Errorf("%v: %v", uri, err)
-				}
+				log.Errorf("%v: %v", uri, err)
 				return
 			}
 		}
@@ -121,9 +114,8 @@ func (s *RsyncSystem) RunRsync(ctx context.Context, uri string, bin string, dirP
 		line := scanner.Text()
 
 		match := wantedFileExtensionRE.MatchString(line)
-		if s.Log != nil {
-			s.Log.Debugf("Rsync received from %v: %v (match=%v)", uri, line, match)
-		}
+		log.Debugf("Rsync received from %v: %v (match=%v)", uri, line, match)
+
 		if match {
 			file, deleted, err := FilterMatch(line)
 			if err != nil {
