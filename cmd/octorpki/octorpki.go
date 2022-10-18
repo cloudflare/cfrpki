@@ -1234,10 +1234,6 @@ func (s *OctoRPKI) validationLoop() {
 
 		s.stats.Iteration++
 		iterationsUntilStable++
-		// GHSA-g5gj-9ggf-9vmq: Prevent infinite repository traversal
-		if iterationsUntilStable > *MaxIterations {
-			log.Fatal("Max iterations has been reached. This number can be adjusted with -max.iterations")
-		}
 		span.SetTag("iteration", s.stats.Iteration)
 
 		if *RRDP {
@@ -1263,6 +1259,13 @@ func (s *OctoRPKI) validationLoop() {
 
 		span.SetTag("stable", s.Stable.Load())
 		span.Finish()
+
+		// GHSA-g5gj-9ggf-9vmq: Prevent infinite repository traversal
+		if iterationsUntilStable > *MaxIterations {
+			// GHSA-pmw9-567p-68pc: Do not crash when MaxIterations is reached
+			log.Warning("Max iterations has been reached. Defining current state as stable and stoppping deeper validation. This number can be adjusted with -max.iterations")
+			s.Stable.Store(true)
+		}
 
 		if *Mode == "oneoff" && s.Stable.Load() {
 			log.Info("Stable, terminating")
