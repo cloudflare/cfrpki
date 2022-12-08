@@ -1267,6 +1267,7 @@ func (s *OctoRPKI) validationLoop() {
 			// GHSA-pmw9-567p-68pc: Do not crash when MaxIterations is reached
 			log.Warning("Max iterations has been reached. Defining current state as stable and stoppping deeper validation. This number can be adjusted with -max.iterations")
 			s.Stable.Store(true)
+			s.HasPreviousStable.Store(true)
 		}
 
 		if *Mode == "oneoff" && s.Stable.Load() {
