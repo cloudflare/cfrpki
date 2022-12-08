@@ -1251,7 +1251,9 @@ func (s *OctoRPKI) validationLoop() {
 		// Reduce
 		changed := s.MainReduce()
 		s.Stable.Store(!changed && s.stats.Iteration > 1)
-		s.HasPreviousStable.Store(s.Stable.Load())
+		if s.Stable.Load() {
+			s.HasPreviousStable.Store(s.Stable.Load())
+		}
 
 		if *Mode == "oneoff" && (s.Stable.Load() || !*WaitStable) {
 			s.mustOutput()
