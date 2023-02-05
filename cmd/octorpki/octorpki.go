@@ -1089,10 +1089,6 @@ func (s *OctoRPKI) Serve(addr string, path string, metricsPath string, infoPath 
 }
 
 func init() {
-	if !*AllowRoot && runningAsRoot() {
-		panic("Running as root is not allowed by default")
-	}
-
 	prometheus.MustRegister(MetricSIACounts)
 	prometheus.MustRegister(MetricRsyncErrors)
 	prometheus.MustRegister(MetricRRDPErrors)
@@ -1116,6 +1112,10 @@ func main() {
 	if *Version {
 		fmt.Println(AppVersion)
 		os.Exit(0)
+	}
+
+	if !*AllowRoot && runningAsRoot() {
+		panic("Running as root is not allowed by default")
 	}
 
 	lvl, _ := log.ParseLevel(*LogLevel)
