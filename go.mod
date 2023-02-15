@@ -9,7 +9,7 @@ require (
 	github.com/google/certificate-transparency-go v1.1.2
 	github.com/kentik/patricia v0.0.0-20210909164817-21603333b70e
 	github.com/opentracing/opentracing-go v1.2.0
-	github.com/prometheus/client_golang v1.11.0
+	github.com/prometheus/client_golang v1.11.1
 	github.com/rs/cors v1.8.0
 	github.com/sirupsen/logrus v1.8.1
 	github.com/stretchr/testify v1.7.0
