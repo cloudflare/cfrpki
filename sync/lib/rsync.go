@@ -91,7 +91,7 @@ func RunRsync(ctx context.Context, uri string, bin string, dirPath string) ([]*F
 			errorStr := scanner.Text()
 			log.Error(errorStr)
 
-			err = scanner.Err()
+			err := scanner.Err()
 			if err != nil {
 				log.Errorf("%v: %v", uri, err)
 				return
