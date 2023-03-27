@@ -23,6 +23,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cloudflare/cfrpki/api/schemas"
 	"github.com/cloudflare/cfrpki/validator/pki"
 	"github.com/cloudflare/gortr/prefixfile"
 	"github.com/getsentry/sentry-go"
@@ -232,6 +233,9 @@ type OctoRPKI struct {
 
 	stats  *octoRPKIStats
 	tracer opentracing.Tracer
+
+	Resources   *schemas.ResourcesJSON
+	ResourcesMu sync.RWMutex
 }
 
 func (s *OctoRPKI) getRRDPFetch() map[string]string {
@@ -764,6 +768,11 @@ func (s *OctoRPKI) generateROAList(pkiManagers []*pki.SimpleManager, span opentr
 		Data: make([]prefixfile.ROAJson, 0),
 	}
 	var counts int
+	resourcesjson := &schemas.ResourcesJSON{
+		Resources: make([]*schemas.OutputRes, 0),
+	}
+	resourcesMap := make(map[string]*schemas.OutputRes)
+	resourcesjson.Metadata.Generated = int(time.Now().UTC().UnixNano() / 1000000000)
 	s.stats.ROAsTALsCount = make([]ROAsTAL, 0)
 	for i, tal := range s.Tals {
 		eSpan := s.tracer.StartSpan("extract", opentracing.ChildOf(span.Context()))
@@ -773,9 +782,139 @@ func (s *OctoRPKI) generateROAList(pkiManagers []*pki.SimpleManager, span opentr
 			talname = s.TalNames[i]
 		}
 
+		for _, obj := range pkiManagers[i].Validator.ValidObjects {
+			switch obj.Type {
+			case pki.TYPE_CER:
+				cer := obj.Resource.(*librpki.RPKICertificate)
+
+				ski := hex.EncodeToString(cer.Certificate.SubjectKeyId)
+				aki := hex.EncodeToString(cer.Certificate.AuthorityKeyId)
+
+				var path string
+				var hash string
+				if obj.File != nil {
+					path = obj.File.ComputePath()
+					resData, err := s.Fetcher.GetFileConv(obj.File, false)
+					if err == nil {
+						hashBytes := sha256.Sum256(resData.Data)
+						hash = hex.EncodeToString(hashBytes[:])
+					}
+				}
+
+				na := int(cer.Certificate.NotAfter.UnixNano() / 1000000000)
+				nb := int(cer.Certificate.NotBefore.UnixNano() / 1000000000)
+				curResource := &schemas.OutputRes{
+					Type:           "certificate",
+					SubjectKeyId:   ski,
+					AuthorityKeyId: aki,
+					Name:           cer.Certificate.Subject.CommonName,
+					Serial:         cer.Certificate.SerialNumber.String(),
+					ASNs:           make([]*schemas.OutputASN, 0),
+					IPs:            make([]*schemas.OutputIP, 0),
+					Path:           path,
+					SIAs:           make([]string, 0),
+					ValidFrom:      nb,
+					ValidTo:        na,
+					TA:             talname,
+					Hash:           hash,
+				}
+
+				resourcesMap[hash] = curResource
+
+				for _, sia := range cer.SubjectInformationAccess {
+					curResource.SIAs = append(curResource.SIAs, string(sia.GeneralName))
+				}
+				for _, asn := range cer.ASNums {
+					var asnRes *schemas.OutputASN
+					switch asnc := asn.(type) {
+					case *librpki.ASNRange:
+						asnRes = &schemas.OutputASN{
+							Range: []uint32{
+								uint32(asnc.Min),
+								uint32(asnc.Max),
+							},
+						}
+					case *librpki.ASNull:
+						asnRes = &schemas.OutputASN{
+							Inherit: true,
+						}
+					case *librpki.ASN:
+						asnRes = &schemas.OutputASN{
+							ASN: uint32(asnc.ASN),
+						}
+					}
+					if asnRes != nil {
+						curResource.ASNs = append(curResource.ASNs, asnRes)
+					}
+				}
+				for _, ips := range cer.IPAddresses {
+					var ipRes *schemas.OutputIP
+					switch ipc := ips.(type) {
+					case *librpki.IPAddressRange:
+						ipRes = &schemas.OutputIP{
+							Range: []string{
+								ipc.Min.String(),
+								ipc.Max.String(),
+							},
+						}
+					case *librpki.IPNet:
+						ipRes = &schemas.OutputIP{
+							Prefix: ipc.IPNet.String(),
+						}
+					case *librpki.IPAddressNull:
+						ipRes = &schemas.OutputIP{
+							Inherit: int(ipc.Family),
+						}
+					}
+					if ipRes != nil {
+						curResource.IPs = append(curResource.IPs, ipRes)
+					}
+				}
+				resourcesjson.Resources = append(resourcesjson.Resources, curResource)
+			}
+		}
+
 		var counttal int
 		for _, obj := range pkiManagers[i].Validator.ValidROA {
 			roa := obj.Resource.(*librpki.RPKIROA)
+
+			var path string
+			var hash string
+			if obj.File != nil {
+				path = obj.File.ComputePath()
+				resData, err := s.Fetcher.GetFileConv(obj.File, false)
+				if err == nil {
+					hashBytes := sha256.Sum256(resData.Data)
+					hash = hex.EncodeToString(hashBytes[:])
+				}
+			}
+
+			cer := roa.Certificate
+
+			ski := hex.EncodeToString(cer.Certificate.SubjectKeyId)
+			aki := hex.EncodeToString(cer.Certificate.AuthorityKeyId)
+
+			em := int(roa.SigningTime.UnixNano() / 1000000000)
+			na := int(cer.Certificate.NotAfter.UnixNano() / 1000000000)
+			nb := int(cer.Certificate.NotBefore.UnixNano() / 1000000000)
+
+			curResource := &schemas.OutputRes{
+				Type:           "roa",
+				SubjectKeyId:   ski,
+				AuthorityKeyId: aki,
+				Name:           cer.Certificate.Subject.CommonName,
+				Serial:         cer.Certificate.SerialNumber.String(),
+				ROAs:           make([]*schemas.OutputROA, 0),
+				Path:           path,
+				Emitted:        em,
+				ASN:            uint32(roa.ASN),
+				ValidFrom:      nb,
+				ValidTo:        na,
+				TA:             talname,
+				Hash:           hash,
+			}
+
+			resourcesMap[hash] = curResource
 
 			for _, entry := range roa.Valids {
 				oroa := prefixfile.ROAJson{
@@ -787,12 +926,70 @@ func (s *OctoRPKI) generateROAList(pkiManagers []*pki.SimpleManager, span opentr
 				roalist.Data = append(roalist.Data, oroa)
 				counts++
 				counttal++
+
+				curResource.ROAs = append(curResource.ROAs, &schemas.OutputROA{
+					Prefix:    entry.IPNet.String(),
+					MaxLength: entry.MaxLength,
+				})
 			}
+
+			resourcesjson.Resources = append(resourcesjson.Resources, curResource)
 		}
-		eSpan.Finish()
 
 		s.stats.ROAsTALsCount = append(s.stats.ROAsTALsCount, ROAsTAL{TA: talname, Count: counttal})
 		MetricROAsCount.With(prometheus.Labels{"ta": talname}).Set(float64(counttal))
+
+		// Complete: Manifests
+		for _, obj := range pkiManagers[i].Validator.ValidManifest {
+			mft := obj.Resource.(*librpki.RPKIManifest)
+
+			var path string
+			var hash string
+			if obj.File != nil {
+				path = obj.File.ComputePath()
+				resData, err := s.Fetcher.GetFileConv(obj.File, false)
+				if err == nil {
+					hashBytes := sha256.Sum256(resData.Data)
+					hash = hex.EncodeToString(hashBytes[:])
+				}
+			}
+
+			cer := mft.Certificate
+
+			ski := hex.EncodeToString(cer.Certificate.SubjectKeyId)
+			aki := hex.EncodeToString(cer.Certificate.AuthorityKeyId)
+			tu := int(mft.Content.ThisUpdate.UnixNano() / 1000000000)
+			nu := int(mft.Content.NextUpdate.UnixNano() / 1000000000)
+			na := int(cer.Certificate.NotAfter.UnixNano() / 1000000000)
+			nb := int(cer.Certificate.NotBefore.UnixNano() / 1000000000)
+
+			curResource := &schemas.OutputRes{
+				Type:           "manifest",
+				SubjectKeyId:   ski,
+				AuthorityKeyId: aki,
+				Name:           cer.Certificate.Subject.CommonName,
+				Serial:         cer.Certificate.SerialNumber.String(),
+				FileList:       make([]string, 0),
+				ThisUpdate:     tu,
+				NextUpdate:     nu,
+				ManifestNumber: mft.Content.ManifestNumber.String(),
+				Path:           path,
+				ValidFrom:      nb,
+				ValidTo:        na,
+				TA:             talname,
+				Hash:           hash,
+			}
+
+			resourcesMap[hash] = curResource
+
+			for _, entry := range mft.Content.FileList {
+				curResource.FileList = append(curResource.FileList, entry.Name)
+			}
+
+			resourcesjson.Resources = append(resourcesjson.Resources, curResource)
+		}
+
+		eSpan.Finish()
 	}
 	curTime := time.Now()
 	s.LastComputed = curTime
@@ -807,6 +1004,10 @@ func (s *OctoRPKI) generateROAList(pkiManagers []*pki.SimpleManager, span opentr
 	if *Sign {
 		s.signROAList(roalist, span)
 	}
+
+	s.ResourcesMu.Lock()
+	defer s.ResourcesMu.Unlock()
+	s.Resources = resourcesjson
 
 	return roalist
 }
@@ -979,6 +1180,21 @@ func (s *OctoRPKI) ServeROAs(w http.ResponseWriter, r *http.Request) {
 	enc.Encode(roaList)
 }
 
+func (s *OctoRPKI) ServeResources(w http.ResponseWriter, r *http.Request) {
+	if !s.Stable.Load() && *WaitStable && !s.HasPreviousStable.Load() {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write([]byte("File not ready yet"))
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	enc := json.NewEncoder(w)
+
+	s.ResourcesMu.RLock()
+	defer s.ResourcesMu.RUnlock()
+	enc.Encode(s.Resources)
+}
+
 func (s *OctoRPKI) ServeHealth(w http.ResponseWriter, r *http.Request) {
 	if s.Stable.Load() || s.HasPreviousStable.Load() {
 		w.WriteHeader(http.StatusOK)
@@ -1054,17 +1270,18 @@ func (s *OctoRPKI) ServeInfo(w http.ResponseWriter, r *http.Request) {
 	enc.Encode(ir)
 }
 
-func (s *OctoRPKI) Serve(addr string, path string, metricsPath string, infoPath string, healthPath string, corsOrigin string, corsCreds bool) {
+func (s *OctoRPKI) Serve(addr string, roaPath string, metricsPath string, infoPath string, healthPath string, corsOrigin string, corsCreds bool) {
 	// Note(Erica): fix https://github.com/cloudflare/cfrpki/issues/8
-	fullPath := path
-	if len(path) > 0 && string(path[0]) != "/" {
-		fullPath = "/" + path
+	fullPath := roaPath
+	if len(roaPath) > 0 && string(roaPath[0]) != "/" {
+		fullPath = "/" + roaPath
 	}
 	log.Infof("Serving HTTP on %v%v", addr, fullPath)
 
 	r := http.NewServeMux()
 
 	r.HandleFunc(fullPath, s.ServeROAs)
+	r.HandleFunc("/resources.json", s.ServeResources)
 	r.HandleFunc(infoPath, s.ServeInfo)
 	r.HandleFunc(healthPath, s.ServeHealth)
 	r.Handle(metricsPath, promhttp.Handler())
