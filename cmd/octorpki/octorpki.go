@@ -236,6 +236,9 @@ type OctoRPKI struct {
 
 	Resources   *schemas.ResourcesJSON
 	ResourcesMu sync.RWMutex
+
+	DoCT   bool
+	CTPath string
 }
 
 func (s *OctoRPKI) getRRDPFetch() map[string]string {
@@ -1025,7 +1028,7 @@ func (s *OctoRPKI) signROAList(roaList *prefixfile.ROAList, span opentracing.Spa
 	roaList.Metadata.SignatureDate = signdate
 }
 
-func (s *OctoRPKI) mainValidation(pSpan opentracing.Span) {
+func (s *OctoRPKI) mainValidation(pSpan opentracing.Span) [][]*pki.PKIFile {
 	t1 := time.Now()
 	ia := make([][]SIA, len(s.Tals))
 	for i := 0; i < len(ia); i++ {
@@ -1035,6 +1038,8 @@ func (s *OctoRPKI) mainValidation(pSpan opentracing.Span) {
 
 	span := s.tracer.StartSpan("validation", opentracing.ChildOf(pSpan.Context()))
 	defer span.Finish()
+
+	ctData := make([][]*pki.PKIFile, 0)
 
 	pkiManagers := make([]*pki.SimpleManager, len(s.Tals))
 	for i, tal := range s.Tals {
@@ -1113,6 +1118,10 @@ func (s *OctoRPKI) mainValidation(pSpan opentracing.Span) {
 		sm.Close()
 		tSpan.LogKV("count-valid", count, "count-total", countExplore)
 		tSpan.Finish()
+
+		if s.DoCT {
+			ctData = append(ctData, s.ct(pkiManagers, i)...)
+		}
 	}
 
 	s.setInfoAuthorities(ia)
@@ -1122,6 +1131,46 @@ func (s *OctoRPKI) mainValidation(pSpan opentracing.Span) {
 	s.stats.ValidationDuration = t2.Sub(t1)
 	MetricOperationTime.With(prometheus.Labels{"type": "validation"}).Observe(float64(s.stats.ValidationDuration.Seconds()))
 	MetricLastValidation.Set(float64(s.LastComputed.Unix()))
+
+	return ctData
+}
+
+func (s *OctoRPKI) ct(pkiManagers []*pki.SimpleManager, i int) [][]*pki.PKIFile {
+	skiToAki := make(map[string]string)
+	skiToPath := make(map[string]*pki.PKIFile)
+	for _, obj := range pkiManagers[i].Validator.ValidObjects {
+		res := obj.Resource.(*librpki.RPKICertificate)
+		ski := hex.EncodeToString(res.Certificate.SubjectKeyId)
+		aki := hex.EncodeToString(res.Certificate.AuthorityKeyId)
+		skiToAki[ski] = aki
+		skiToPath[ski] = obj.File
+	}
+
+	pathCT := make([][]*pki.PKIFile, 0)
+	for ski, aki := range skiToAki {
+		skiDone := make(map[string]bool)
+		skiDone[ski] = true
+
+		curAki := aki
+		curPath := skiToPath[ski]
+		curPathCT := make([]*pki.PKIFile, 1)
+		curPathCT[0] = curPath
+
+		var ok bool
+		for curAki != "" && !ok {
+			ok = skiDone[curAki]
+			skiDone[curAki] = true
+
+			curPath = skiToPath[curAki]
+			if curAki != "" {
+				curPathCT = append(curPathCT, curPath)
+			}
+			curAki = skiToAki[curAki]
+		}
+		pathCT = append(pathCT, curPathCT)
+	}
+
+	return pathCT
 }
 
 func (s *OctoRPKI) setInfoAuthorities(ia [][]SIA) {
@@ -1405,6 +1454,10 @@ func main() {
 		log.Fatalf("Mode %v is not specified. Choose either server or oneoff", *Mode)
 	}
 
+	if *CertTransparencyThreads < 1 {
+		*CertTransparencyThreads = 1
+	}
+
 	s.validationLoop()
 }
 
@@ -1425,6 +1478,8 @@ func NewOctoRPKI(tals []*pki.PKIFile, talNames []string) *OctoRPKI {
 		stats:                newOctoRPKIStats(),
 		InfoAuthorities:      make([][]SIA, 0),
 		tracer:               opentracing.GlobalTracer(),
+		DoCT:                 *CertTransparency,
+		CTPath:               *CertTransparencyAddr,
 	}
 }
 
@@ -1498,7 +1553,7 @@ func (s *OctoRPKI) validationLoop() {
 
 		s.mainRsync(span)
 
-		s.mainValidation(span)
+		ctData := s.mainValidation(span)
 
 		// Reduce
 		changed := s.MainReduce()
@@ -1522,6 +1577,20 @@ func (s *OctoRPKI) validationLoop() {
 		if *Mode == "oneoff" && s.Stable.Load() {
 			log.Info("Stable, terminating")
 			break
+		}
+
+		// Certificate Transparency
+		if s.DoCT && (s.Stable.Load() || !*WaitStable) {
+			t1 := time.Now().UTC()
+
+			s.SendCertificateTransparency(span, ctData, *CertTransparencyThreads, *CertTransparencyTimeout)
+
+			t2 := time.Now().UTC()
+			MetricOperationTime.With(
+				prometheus.Labels{
+					"type": "ct",
+				}).
+				Observe(float64(t2.Sub(t1).Seconds()))
 		}
 
 		if s.Stable.Load() {
