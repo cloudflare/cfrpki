@@ -21,7 +21,7 @@ _This software comes with no warranties._
 
 ### Introduction
 
-A RPKI validator performs cryptographic on the RPKI data provided
+A RPKI validator performs cryptographic validation on the RPKI data provided
 by the Regional Internet Registries (RIR).
 Every network can verify that the routing information data (prefixes and ASN)
 was not tampered with.
