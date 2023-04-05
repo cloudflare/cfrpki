@@ -52,6 +52,7 @@ var (
 	LogLevel      = flag.String("loglevel", "info", "Log level")
 	Refresh       = flag.Duration("refresh", time.Minute*20, "Revalidation interval")
 	MaxIterations = flag.Int("max.iterations", 32, "Specify the max number of iterations octorpki will make before failing to generate output.json")
+	Filter        = flag.Bool("filter", true, "Filter out non accessible prefixes and duplicates")
 
 	StrictManifests = flag.Bool("strict.manifests", true, "Manifests must be complete or invalidate CA")
 	StrictHash      = flag.Bool("strict.hash", true, "Check the hash of files")
@@ -239,6 +240,7 @@ type OctoRPKI struct {
 
 	DoCT   bool
 	CTPath string
+	Filter bool
 }
 
 func (s *OctoRPKI) getRRDPFetch() map[string]string {
@@ -1003,6 +1005,10 @@ func (s *OctoRPKI) generateROAList(pkiManagers []*pki.SimpleManager, span opentr
 		Valid:     int(validTime.Unix()),
 	}
 
+	if s.Filter {
+		roalist.Data = FilterInvalidPrefixLen(FilterDuplicates(roalist.Data))
+	}
+
 	roalist.Data = filterDuplicates(roalist.Data)
 	if *Sign {
 		s.signROAList(roalist, span)
@@ -1480,6 +1486,7 @@ func NewOctoRPKI(tals []*pki.PKIFile, talNames []string) *OctoRPKI {
 		tracer:               opentracing.GlobalTracer(),
 		DoCT:                 *CertTransparency,
 		CTPath:               *CertTransparencyAddr,
+		Filter:               *Filter,
 	}
 }
 
