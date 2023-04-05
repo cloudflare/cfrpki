@@ -41,12 +41,8 @@ It is also used in production by multiple networks.
 OctoRPKI requires bootstrap file in order to fetch the RPKI data.
 The Trust Anchor Location (TAL) indicates endpoints (rsync/https) hosted
 by Internet Resources holders (IP addresses and ASN), the RIRs.
-By default, _Afrinic, APNIC, LACNIC and RIPE_ TALs are [shipped with this
-software](https://github.com/cloudflare/cfrpki/tree/master/cmd/octorpki/tals). _ARIN_ requires users to agree to a
-[Relying Party Agreement (RPA)](https://www.arin.net/resources/manage/rpki/tal/)
-in order to download the TAL.
-You will need all the five TAL to perform complete RPKI validation
-as they each cover one region.
+By default, ARIN, _Afrinic, APNIC, LACNIC and RIPE_ TALs are [shipped with this
+software](https://github.com/cloudflare/cfrpki/tree/master/cmd/octorpki/tals).
 
 This application periodically refreshes the data provided by the RIRs and the delegated organizations.
 It keeps exploring the RPKI repositories until it reaches a stable state (no new endpoints added).
