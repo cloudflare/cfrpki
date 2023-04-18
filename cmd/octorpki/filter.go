@@ -6,13 +6,16 @@ func FilterInvalidPrefixLen(roalist []prefixfile.ROAJson) []prefixfile.ROAJson {
 	validROAs := make([]prefixfile.ROAJson, 0)
 	for _, roa := range roalist {
 		prefix := roa.GetPrefix()
-		ones, _ := prefix.Mask.Size()
-		if prefix.IP.To4() != nil && ones <= 24 {
-			validROAs = append(validROAs, roa)
+		prefixLen, _ := prefix.Mask.Size()
+		if prefix.IP.To4() != nil {
+			if prefixLen <= 24 {
+				validROAs = append(validROAs, roa)
+			}
+
 			continue
 		}
 
-		if prefix.IP.To16() != nil && ones <= 48 {
+		if prefixLen <= 48 {
 			validROAs = append(validROAs, roa)
 		}
 	}
