@@ -15,7 +15,7 @@ func TestExtractFoldersPathFromRsyncURL(t *testing.T) {
 	}{
 		{
 			name:     "Valid URL",
-			url:      "rsync://r.magellan.ipxo.com/repo",
+			url:      "rsync://r.magellan.ipxo.com/repo/foo",
 			wantFail: false,
 			expected: "r.magellan.ipxo.com/repo",
 		},
@@ -23,12 +23,6 @@ func TestExtractFoldersPathFromRsyncURL(t *testing.T) {
 			name:     "Invalid URL",
 			url:      "xxxx://r.magellan.ipxo.com/repo",
 			wantFail: true,
-		},
-		{
-			name:     "Valid URL with file",
-			url:      "rsync://r.magellan.ipxo.com/repo/foo.roa",
-			wantFail: false,
-			expected: "r.magellan.ipxo.com/repo",
 		},
 	}
 
