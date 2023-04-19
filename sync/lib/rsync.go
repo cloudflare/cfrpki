@@ -27,9 +27,12 @@ func ExtractFoldersPathFromRsyncURL(url string) (string, error) {
 		return "", fmt.Errorf("%q is not an rsync URL", url)
 	}
 
-	filePath := strings.TrimPrefix(url, RsyncProtoPrefix)
-	parts := strings.Split(filePath, "/")
-	return strings.Join(parts[0:len(parts)-1], "/"), nil
+	fp := strings.Split(strings.TrimPrefix(url, RsyncProtoPrefix), "/")
+	if wantedFileExtensionRE.Match([]byte(fp[len(fp)-1])) {
+		fp = fp[:len(fp)-1]
+	}
+
+	return strings.Join(fp, "/"), nil
 }
 
 func ExtractFilePathFromRsyncURL(url string) (string, error) {
