@@ -349,15 +349,6 @@ func mustMkdirAll(fPath string) {
 	}
 }
 
-func mustExtractFilePathFromRsyncURL(rsyncURL string) string {
-	fPath, err := syncpki.ExtractFilePathFromRsyncURL(rsyncURL)
-	if err != nil {
-		log.Fatalf("Unable to extract file path from rsync url: %v", err)
-	}
-
-	return fPath
-}
-
 func (s *OctoRPKI) ReceiveRRDPFileCallback(main string, url string, path string, data []byte, withdraw bool, snapshot bool, serial int64, args ...interface{}) error {
 	if len(args) > 0 {
 		rsync, ok := args[0].(string)
@@ -547,6 +538,15 @@ func mustExtractFoldersPathFromRsyncURL(rsyncURL string) string {
 	return downloadPath
 }
 
+func mustExtractFilePathFromRsyncURL(rsyncURL string) string {
+	fPath, err := syncpki.ExtractFilePathFromRsyncURL(rsyncURL)
+	if err != nil {
+		log.Fatalf("Unable to extract file path from rsync url: %v", err)
+	}
+
+	return fPath
+}
+
 func (s *OctoRPKI) fetchRsync(uri string, span opentracing.Span) {
 	rSpan := s.tracer.StartSpan("sync", opentracing.ChildOf(span.Context()))
 	defer rSpan.Finish()
@@ -554,7 +554,7 @@ func (s *OctoRPKI) fetchRsync(uri string, span opentracing.Span) {
 	rSpan.SetTag("type", "rsync")
 
 	log.Infof("Rsync sync %v", uri)
-	downloadPath := mustExtractFoldersPathFromRsyncURL(uri)
+	downloadPath := mustExtractFilePathFromRsyncURL(uri)
 
 	path := filepath.Join(*Basepath, downloadPath)
 	ctxRsync, cancelRsync := context.WithTimeout(context.Background(), *RsyncTimeout)
