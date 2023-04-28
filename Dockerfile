@@ -10,7 +10,7 @@ RUN apk --update --no-cache add git && \
 WORKDIR ${src_dir}
 COPY . .
 
-RUN go build -ldflags "${LDFLAGS}" cmd/octorpki/*.go
+RUN go build -o octorpki -ldflags "${LDFLAGS}" cmd/octorpki/*.go
 
 FROM alpine:latest
 ARG src_dir
@@ -21,7 +21,7 @@ RUN apk --update --no-cache add ca-certificates rsync && \
     touch rrdp.json && chown rpki rrdp.json
 USER rpki
 
-COPY --from=builder ${src_dir}/cmd/octorpki/octorpki ${src_dir}/cmd/octorpki/private.pem /
+COPY --from=builder ${src_dir}/octorpki ${src_dir}/cmd/octorpki/private.pem /
 COPY --from=builder ${src_dir}/cmd/octorpki/tals /tals
 
 VOLUME ["/cache"]
