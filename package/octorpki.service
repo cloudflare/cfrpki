@@ -6,7 +6,8 @@ After=network.target
 Type=simple
 EnvironmentFile=/etc/default/octorpki
 WorkingDirectory=/usr/share/octorpki
-ExecStart=/usr/bin/octorpki $OCTORPKI_ARGS
+ExecStart=/usr/bin/octorpki -cache=/var/lib/octorpki/cache -output.sign=false
+
 User=octorpki
 Group=octorpki
 
