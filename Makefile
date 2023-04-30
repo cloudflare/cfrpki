@@ -35,7 +35,7 @@ clean:
 
 .PHONY: build-octorpki
 build-octorpki: prepare
-	go build -ldflags $(LDFLAGS) -o $(OUTPUT_OCTORPKI) cmd/octorpki/*.go
+	CGO_ENABLED=0 go build -ldflags $(LDFLAGS) -o $(OUTPUT_OCTORPKI) cmd/octorpki/*.go
 
 .PHONY: docker-octorpki
 docker-octorpki:
