@@ -41,11 +41,12 @@ import (
 var (
 	version    = ""
 	buildinfos = ""
+	talpath    = "tals"
 	AppVersion = "OctoRPKI " + version + " " + buildinfos
 	AllowRoot  = flag.Bool("allow.root", false, "Allow starting as root")
 
 	// Validator Options
-	RootTAL       = flag.String("tal.root", "tals/afrinic.tal,tals/apnic.tal,tals/arin.tal,tals/lacnic.tal,tals/ripe.tal", "List of TAL separated by comma")
+	RootTAL       = flag.String("tal.root", fmt.Sprintf("%v/afrinic.tal,%v/apnic.tal,%v/arin.tal,%v/lacnic.tal,%v/ripe.tal", talpath, talpath, talpath, talpath, talpath), "List of TAL separated by comma")
 	TALNames      = flag.String("tal.name", "AFRINIC,APNIC,ARIN,LACNIC,RIPE", "Name of the TALs")
 	UseManifest   = flag.Bool("manifest.use", true, "Use manifests file to explore instead of going into the repository")
 	Basepath      = flag.String("cache", "cache/", "Base directory to store certificates")
