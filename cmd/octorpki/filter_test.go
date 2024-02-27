@@ -14,7 +14,7 @@ func TestFilter(t *testing.T) {
 		expected []prefixfile.ROAJson
 	}{
 		{
-			name: "Invalid IPv4 prefix",
+			name: "Likely unrouteable IPv4 prefix",
 			input: []prefixfile.ROAJson{
 				{
 					Prefix: "1.1.1.0/25",
@@ -25,7 +25,7 @@ func TestFilter(t *testing.T) {
 			expected: []prefixfile.ROAJson{},
 		},
 		{
-			name: "Invalid IPv6 prefix",
+			name: "Likely unrouteable IPv6 prefix",
 			input: []prefixfile.ROAJson{
 				{
 					Prefix: "2001:db8::/64",
@@ -65,7 +65,7 @@ func TestFilter(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		res := FilterInvalidPrefixLen(test.input)
+		res := FilterInvalidPrefixLen(test.input, 24, 48)
 		assert.Equal(t, test.expected, res, test.name)
 	}
 }

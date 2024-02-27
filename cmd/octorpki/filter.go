@@ -3,7 +3,7 @@ package main
 import "github.com/cloudflare/gortr/prefixfile"
 
 func FilterInvalidPrefixLen(roalist []prefixfile.ROAJson) []prefixfile.ROAJson {
-	validROAs := make([]prefixfile.ROAJson, 0)
+	validROAs := make([]prefixfile.ROAJson, 0, len(roalist))
 	for _, roa := range roalist {
 		prefix := roa.GetPrefix()
 		prefixLen, _ := prefix.Mask.Size()
@@ -24,7 +24,7 @@ func FilterInvalidPrefixLen(roalist []prefixfile.ROAJson) []prefixfile.ROAJson {
 }
 
 func FilterDuplicates(roalist []prefixfile.ROAJson) []prefixfile.ROAJson {
-	roalistNodup := make([]prefixfile.ROAJson, 0)
+	roalistNodup := make([]prefixfile.ROAJson, 0, len(roalist))
 	existingsROAs := make(map[string]struct{})
 	for _, roa := range roalist {
 		k := roa.String()
