@@ -1,5 +1,8 @@
 # Cloudflare RPKI Validator Tools and Libraries
 
+## DEPRECATION NOTICE
+**This software is no longer maintained. We advise replacing your production use of this software with the swap-in replacement [rpki-client](https://rpki-client.org/)**
+
 [![Build Status](https://github.com/cloudflare/cfrpki/workflows/Go/badge.svg)](https://github.com/cloudflare/cfrpki/actions?query=workflow%3AGo)
 
 <img align="left" src="resources/octorpki.png" alt="Cloudflare OctoRPKI logo">
