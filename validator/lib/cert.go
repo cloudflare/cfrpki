@@ -346,6 +346,9 @@ func DecodeIPAddressBlock(data []byte) ([]IPCertificateInformation, error) {
 
 					a, _ := DecodeIPMinMax(ipaddrfam.AddressFamily, addrRange.Min, false)
 					b, err := DecodeIPMinMax(ipaddrfam.AddressFamily, addrRange.Max, true)
+					if err != nil {
+						return ipaddresses, err
+					}
 					ipaddresses = append(ipaddresses, &IPAddressRange{
 						Min: a,
 						Max: b,

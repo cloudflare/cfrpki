@@ -273,7 +273,9 @@ func (cf *DecoderConfig) DecodeROA(data []byte) (*RPKIROA, error) {
 
 	var rawroa ROA
 	_, err = asn1.Unmarshal(c.SignedData.EncapContentInfo.FullBytes, &rawroa)
-
+	if err != nil {
+		return nil, err
+	}
 	var inner asn1.RawValue
 	_, err = asn1.Unmarshal(rawroa.EContent.Bytes, &inner)
 	if err != nil {

@@ -6,11 +6,13 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
-	"github.com/stretchr/testify/assert"
 	"math/big"
 	"net"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func MakeROAEntries() []*ROAEntry {
@@ -41,6 +43,7 @@ func TestEncodeROA(t *testing.T) {
 	assert.Nil(t, err)
 
 	privkey, err := rsa.GenerateKey(rand.Reader, 1024)
+	require.NoError(t, err)
 	ski := []byte{1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5}
 
 	cert := &x509.Certificate{
@@ -55,6 +58,7 @@ func TestEncodeROA(t *testing.T) {
 	}
 	pubkey := privkey.Public()
 	certBytes, err := x509.CreateCertificate(rand.Reader, cert, cert, pubkey, privkey)
+	require.NoError(t, err)
 
 	encap, _ := EContentToEncap(entriesEnc.EContent.FullBytes)
 	err = cms.Sign(rand.Reader, ski, encap, privkey, certBytes)
